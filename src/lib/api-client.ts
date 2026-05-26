@@ -1,5 +1,15 @@
 import axios, { AxiosError } from 'axios'
-import type { ApiError, ApiResponse, Meta } from '@/types/envelope'
+import type { ApiResponse, ApiError } from '@/types/envelope'
+
+/**
+ * URL base de la API.
+ *
+ * - En desarrollo: si VITE_API_URL no está definida, usa '/api' y el proxy
+ *   de Vite redirige a localhost:8080 (configurado en vite.config.ts).
+ * - En producción: VITE_API_URL apunta al backend en Railway, definida en
+ *   el archivo .env.production y en las variables de entorno de Vercel.
+ */
+const API_BASE = import.meta.env.VITE_API_URL ?? '/api'
 
 const TOKEN_KEY = 'mis-finanzas:token'
 
@@ -10,11 +20,40 @@ export const tokenStorage = {
 }
 
 export const api = axios.create({
-  baseURL: '/api',
+  baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
+  timeout: 20000,
 })
 
-// Request: agrega el JWT si existe
+/**
+ * Error tipado de la API. Expone el código semántico del backend
+ * para que los componentes puedan reaccionar de forma granular.
+ */
+export class ApiClientError extends Error {
+  code: string
+  details?: Array<{ field: string; message: string }>
+  requestId?: string
+  httpStatus?: number
+
+  constructor(apiError: ApiError, httpStatus?: number, requestId?: string) {
+    super(apiError.message)
+    this.name = 'ApiClientError'
+    this.code = apiError.code
+    this.details = apiError.details
+    this.requestId = requestId
+    this.httpStatus = httpStatus
+  }
+
+  /**
+   * True si este error es de validación de campos (código VALIDATION_ERROR).
+   * Cuando es true, .details contiene los errores por campo.
+   */
+  isValidation(): boolean {
+    return this.code === 'VALIDATION_ERROR'
+  }
+}
+
+// Interceptor de request: agrega el token si existe
 api.interceptors.request.use((config) => {
   const token = tokenStorage.get()
   if (token) {
@@ -23,142 +62,78 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-/**
- * Excepción tipada lanzada cuando una respuesta del backend tiene success=false
- * o cuando hay un error de red. Mantiene el error semántico del backend para que
- * los componentes puedan mapear UX específica.
- */
-export class ApiClientError extends Error {
-  readonly code: string
-  readonly httpStatus: number
-  readonly cause?: string
-  readonly details?: ApiError['details']
-  readonly requestId?: string
-
-  constructor(opts: {
-    code: string
-    message: string
-    httpStatus: number
-    cause?: string
-    details?: ApiError['details']
-    requestId?: string
-  }) {
-    super(opts.message)
-    this.name = 'ApiClientError'
-    this.code = opts.code
-    this.httpStatus = opts.httpStatus
-    this.cause = opts.cause
-    this.details = opts.details
-    this.requestId = opts.requestId
-  }
-
-  /** Atajos comunes para checks en componentes. */
-  is(code: string): boolean {
-    return this.code === code
-  }
-
-  isValidation(): boolean {
-    return this.code === 'VALIDATION_ERROR'
-  }
-
-  isUnauthorized(): boolean {
-    return this.httpStatus === 401
-  }
-}
-
-/**
- * Response interceptor:
- * 1. Si la respuesta es 2xx con un envelope { success: true, data }, devuelve { ...response, data: data }.
- *    Eso significa que `response.data` queda siendo el payload real, no el envelope.
- *    Todos los servicios existentes siguen funcionando sin cambios.
- * 2. Si la respuesta es de error y trae envelope, convierte a ApiClientError tipado.
- * 3. Si es 401, limpia token y redirige (excepto en /login y /register).
- */
+// Interceptor de response: desempaca el envelope
 api.interceptors.response.use(
   (response) => {
-    // 204 No Content (ej. budget vacío)
-    if (response.status === 204) return response
-
-    const body = response.data
-    if (body && typeof body === 'object' && 'success' in body) {
-      const env = body as ApiResponse<unknown>
-      if (env.success) {
-        // Adjuntamos el meta como una propiedad extra del response por si algún
-        // caller la necesita (paginación, requestId).
-        ;(response as { meta?: Meta }).meta = env.meta
-        response.data = env.data
+    const envelope = response.data as ApiResponse<unknown>
+    // El backend siempre devuelve envelope. Desempacamos data.
+    if (envelope && typeof envelope === 'object' && 'success' in envelope) {
+      if (envelope.success) {
+        response.data = envelope.data
         return response
       }
-      // success: false — algunos backends podrían responder con 200 + error.
-      // En ese raro caso, lo reescribimos como rechazo.
-      throw envToClientError(env, response.status)
+      // success: false → lanzar error tipado
+      throw new ApiClientError(
+        envelope.error!,
+        response.status,
+        envelope.meta?.requestId,
+      )
     }
     return response
   },
-  (error: AxiosError<ApiResponse<unknown>>) => {
-    const status = error.response?.status ?? 0
-
-    // 401: limpiar y redirigir
-    if (status === 401) {
-      const path = window.location.pathname
-      if (!path.startsWith('/login') && !path.startsWith('/register')) {
-        tokenStorage.clear()
-        window.location.href = '/login'
+  (error: AxiosError) => {
+    // Errores HTTP (4xx, 5xx) con envelope
+    if (error.response?.data) {
+      const envelope = error.response.data as ApiResponse<unknown>
+      if (envelope && typeof envelope === 'object' && 'error' in envelope && envelope.error) {
+        return Promise.reject(
+          new ApiClientError(
+            envelope.error,
+            error.response.status,
+            envelope.meta?.requestId,
+          ),
+        )
       }
     }
-
-    const envelope = error.response?.data
-    if (envelope && typeof envelope === 'object' && 'success' in envelope && !envelope.success) {
-      return Promise.reject(envToClientError(envelope, status))
-    }
-
-    // Error de red / timeout / sin envelope
+    // Error sin envelope (red caída, timeout, CORS, etc.)
     return Promise.reject(
-      new ApiClientError({
-        code: 'NETWORK_ERROR',
-        message: error.message || 'Error de red',
-        httpStatus: status,
-      })
+      new ApiClientError(
+        {
+          code: 'NETWORK_ERROR',
+          message: error.message || 'Error de conexión con el servidor',
+        },
+        error.response?.status,
+      ),
     )
-  }
+  },
 )
 
-function envToClientError(env: ApiResponse<unknown>, httpStatus: number): ApiClientError {
-  const e = env.error
-  return new ApiClientError({
-    code: e?.code ?? 'INTERNAL_ERROR',
-    message: e?.message ?? 'Ocurrió un error inesperado',
-    httpStatus,
-    cause: e?.cause,
-    details: e?.details,
-    requestId: env.meta?.requestId,
-  })
-}
-
 /**
- * Extrae un mensaje legible de cualquier error.
- * Si es ApiClientError, prioriza el `message` semántico.
- * Si es VALIDATION_ERROR, concatena los detalles por campo.
- */
-export function getErrorMessage(error: unknown): string {
-  if (error instanceof ApiClientError) {
-    if (error.isValidation() && error.details && error.details.length > 0) {
-      return error.details.map((d) => `${d.field}: ${d.message}`).join(', ')
-    }
-    return error.message
-  }
-  if (error instanceof Error) return error.message
-  return 'Error desconocido'
-}
-
-/**
- * Devuelve el ApiClientError si lo es, o null.
- * Útil cuando un componente quiere acceder al `code` para lógica específica.
+ * Extrae un mensaje legible de cualquier error capturado.
+ * Si es un ApiClientError, usa su mensaje (que viene del catálogo del backend).
+ * Si es otra cosa, devuelve un mensaje genérico.
  *
- * Ejemplo:
- *   const err = getApiError(error)
- *   if (err?.is(ErrorCode.AUTH_EMAIL_ALREADY_EXISTS)) { ... }
+ * Uso típico en componentes:
+ *   catch (err) { setError(getErrorMessage(err)) }
  */
-export function getApiError(error: unknown): ApiClientError | null {
-  return error instanceof ApiClientError ? error : null
+export function getErrorMessage(err: unknown): string {
+  if (err instanceof ApiClientError) {
+    return err.message
+  }
+  if (err instanceof Error) {
+    return err.message
+  }
+  return 'Ocurrió un error inesperado'
+}
+
+/**
+ * Devuelve el ApiClientError tipado si el error lo es, o null en caso contrario.
+ * Útil cuando necesitas acceder a .code o .details (no solo al mensaje).
+ *
+ * Uso típico:
+ *   const apiErr = getApiError(err)
+ *   if (apiErr?.code === 'VALIDATION_ERROR') { ... }
+ */
+export function getApiError(err: unknown): ApiClientError | null {
+  return err instanceof ApiClientError ? err : null
 }

@@ -1,9 +1,18 @@
+# ===== Dependencias =====
 node_modules/
+
+# ===== Build =====
 dist/
 dist-ssr/
 *.local
 
-# Editor
+# ===== Variables de entorno locales =====
+# .env.production SÍ se versiona (no tiene secretos, solo la URL pública del API)
+# pero los .env locales con overrides no.
+.env.local
+.env.*.local
+
+# ===== IDE =====
 .vscode/*
 !.vscode/extensions.json
 .idea/
@@ -13,11 +22,7 @@ dist-ssr/
 *.sln
 *.sw?
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
+# ===== Logs =====
 logs/
 *.log
 npm-debug.log*
@@ -25,7 +30,6 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Env
-.env
-.env.local
-.env.*.local
+# ===== OS =====
+.DS_Store
+Thumbs.db
