@@ -1,4 +1,4 @@
-import { LayoutDashboard, ListOrdered, PieChart, Tag, LogOut, Plus, Settings2, Wallet } from 'lucide-react'
+import { LayoutDashboard, ListOrdered, PieChart, Tag, LogOut, Plus, Repeat, Settings2, Wallet } from 'lucide-react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/features/auth/AuthProvider'
 import { useState } from 'react'
@@ -8,6 +8,7 @@ const navItems = [
   { to: '/', label: 'Panel', icon: LayoutDashboard, end: true },
   { to: '/movimientos', label: 'Movimientos', icon: ListOrdered },
   { to: '/cuentas', label: 'Cuentas', icon: Wallet },
+  { to: '/recurrentes', label: 'Recurrentes', icon: Repeat },
   { to: '/configurar', label: 'Configurar', icon: Settings2 },
   { to: '/reglas', label: 'Reglas', icon: PieChart },
   { to: '/categorias', label: 'Categorías', icon: Tag },

@@ -1,14 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { accountsApi, categoriesApi, transactionsApi } from '@/api/services'
+import { accountsApi, categoriesApi, recurringApi, transactionsApi } from '@/api/services'
 import { Modal } from '@/components/ui/Modal'
 import { ErrorState } from '@/components/ui/States'
 import { useAuth } from '@/features/auth/AuthProvider'
 import { getErrorMessage } from '@/lib/api-client'
 import { queryKeys } from '@/lib/query-keys'
 import { currencySymbol, formatCurrency, todayIso } from '@/lib/format'
-import type { Transaction, TransactionRequest, TransactionType } from '@/types/api'
+import type {
+  Frequency,
+  Recurring,
+  RecurringRequest,
+  Transaction,
+  TransactionRequest,
+  TransactionType,
+} from '@/types/api'
 
 interface FormValues {
   type: TransactionType
@@ -20,13 +27,22 @@ interface FormValues {
   categoryId: string
   transactionDate: string
   description: string
+  /** '' = no se repite */
+  frequency: '' | Frequency
+  autoCreate: boolean
+  endDate: string
 }
 
 interface Props {
   open: boolean
   onClose: () => void
   onSuccess?: () => void
+  /** Editar un movimiento existente */
   initial?: Transaction | null
+  /** Editar un recurrente existente */
+  recurring?: Recurring | null
+  /** Crear un recurrente nuevo (la repetición es obligatoria) */
+  recurringMode?: boolean
 }
 
 const LAST_ACCOUNT_KEY = 'mis-finanzas:last-account'
@@ -57,6 +73,9 @@ const EMPTY: FormValues = {
   categoryId: '',
   transactionDate: todayIso(),
   description: '',
+  frequency: '',
+  autoCreate: true,
+  endDate: '',
 }
 
 const TYPE_OPTIONS: Array<{ value: TransactionType; label: string }> = [
@@ -65,7 +84,14 @@ const TYPE_OPTIONS: Array<{ value: TransactionType; label: string }> = [
   { value: 'TRANSFER', label: 'Transferencia' },
 ]
 
-export function TransactionFormModal({ open, onClose, onSuccess, initial }: Props) {
+export function TransactionFormModal({
+  open,
+  onClose,
+  onSuccess,
+  initial,
+  recurring,
+  recurringMode,
+}: Props) {
   const queryClient = useQueryClient()
   const { user } = useAuth()
   const baseCurrency = user?.currencyDefault ?? 'PEN'
@@ -79,7 +105,11 @@ export function TransactionFormModal({ open, onClose, onSuccess, initial }: Prop
   const toAccountId = watch('toAccountId')
   const amount = watch('amount')
   const exchangeRate = watch('exchangeRate')
+  const frequency = watch('frequency')
+  const autoCreate = watch('autoCreate')
   const isTransfer = type === 'TRANSFER'
+  const isRecurringForm = !!recurring || !!recurringMode
+  const repeats = isRecurringForm || !!frequency
 
   const { data: categories = [] } = useQuery({
     queryKey: queryKeys.categories.list(false),
@@ -97,9 +127,14 @@ export function TransactionFormModal({ open, onClose, onSuccess, initial }: Prop
   const accounts = useMemo(
     () =>
       allAccounts.filter(
-        (a) => !a.archived || a.id === initial?.accountId || a.id === initial?.toAccountId,
+        (a) =>
+          !a.archived ||
+          a.id === initial?.accountId ||
+          a.id === initial?.toAccountId ||
+          a.id === recurring?.accountId ||
+          a.id === recurring?.toAccountId,
       ),
-    [allAccounts, initial],
+    [allAccounts, initial, recurring],
   )
 
   const from = accounts.find((a) => String(a.id) === accountId)
@@ -122,7 +157,22 @@ export function TransactionFormModal({ open, onClose, onSuccess, initial }: Prop
   // Cargar valores iniciales
   useEffect(() => {
     if (!open) return
-    if (initial) {
+    if (recurring) {
+      reset({
+        type: recurring.type,
+        amount: recurring.amount,
+        accountId: String(recurring.accountId),
+        toAccountId: recurring.toAccountId ? String(recurring.toAccountId) : '',
+        toAmount: recurring.toAmount ?? '',
+        exchangeRate: recurring.exchangeRate ?? '',
+        categoryId: recurring.categoryId ? String(recurring.categoryId) : '',
+        transactionDate: recurring.nextDate,
+        description: recurring.description ?? '',
+        frequency: recurring.frequency,
+        autoCreate: recurring.autoCreate,
+        endDate: recurring.endDate ?? '',
+      })
+    } else if (initial) {
       reset({
         type: initial.type,
         amount: initial.amount,
@@ -133,22 +183,25 @@ export function TransactionFormModal({ open, onClose, onSuccess, initial }: Prop
         categoryId: initial.categoryId ? String(initial.categoryId) : '',
         transactionDate: initial.transactionDate,
         description: initial.description ?? '',
+        frequency: '',
+        autoCreate: true,
+        endDate: '',
       })
     } else {
-      reset({ ...EMPTY, transactionDate: todayIso() })
+      reset({ ...EMPTY, transactionDate: todayIso(), frequency: recurringMode ? 'MONTHLY' : '' })
     }
     setError(null)
-  }, [initial, open, reset, baseCurrency])
+  }, [initial, recurring, recurringMode, open, reset, baseCurrency])
 
   // Cuenta por defecto: la última usada; si no, la primera cuenta corriente en moneda base
   useEffect(() => {
-    if (!open || initial || getValues('accountId') || accounts.length === 0) return
+    if (!open || initial || recurring || getValues('accountId') || accounts.length === 0) return
     const last = readLastAccount()
     const spending = accounts.filter((a) => a.type !== 'SAVINGS' && a.type !== 'INVESTMENT')
     const fallback =
       spending.find((a) => a.currency === baseCurrency) ?? spending[0] ?? accounts[0]
     setValue('accountId', accounts.some((a) => String(a.id) === last) ? last : String(fallback.id))
-  }, [open, initial, accounts, baseCurrency, getValues, setValue])
+  }, [open, initial, recurring, accounts, baseCurrency, getValues, setValue])
 
   // Si cambia el tipo, limpia la categoría si ya no aplica
   useEffect(() => {
@@ -187,6 +240,24 @@ export function TransactionFormModal({ open, onClose, onSuccess, initial }: Prop
         payload.categoryId = Number(values.categoryId)
       }
       if (needsRate) payload.exchangeRate = values.exchangeRate
+
+      if (repeats && values.frequency) {
+        const { transactionDate, paymentMethod: _pm, ...rest } = payload
+        const req: RecurringRequest = {
+          ...rest,
+          frequency: values.frequency,
+          startDate: transactionDate,
+          endDate: values.endDate || undefined,
+          autoCreate: values.autoCreate,
+        }
+        if (recurring) return recurringApi.update(recurring.id, req)
+        const created = await recurringApi.create(req)
+        // Desde "nuevo movimiento", este ya ocurrió: si no es automático, se registra ahora
+        if (!recurringMode && !req.autoCreate && transactionDate <= todayIso()) {
+          await recurringApi.register(created.id, { date: transactionDate })
+        }
+        return created
+      }
       if (initial) return transactionsApi.update(initial.id, payload)
       return transactionsApi.create(payload)
     },
@@ -194,6 +265,7 @@ export function TransactionFormModal({ open, onClose, onSuccess, initial }: Prop
       saveLastAccount(values.accountId)
       queryClient.invalidateQueries({ queryKey: queryKeys.transactions.all })
       queryClient.invalidateQueries({ queryKey: queryKeys.accounts.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.recurring.all })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       onSuccess?.()
       onClose()
@@ -210,6 +282,9 @@ export function TransactionFormModal({ open, onClose, onSuccess, initial }: Prop
       return setError(`Indica cuánto se recibió en ${to!.currency}`)
     }
     if (needsRate && !values.exchangeRate) return setError('Indica el tipo de cambio')
+    if (values.endDate && values.endDate < values.transactionDate) {
+      return setError('La fecha de fin no puede ser anterior a la de inicio')
+    }
     mutation.mutate(values)
   }
 
@@ -217,7 +292,19 @@ export function TransactionFormModal({ open, onClose, onSuccess, initial }: Prop
     needsRate && amount && exchangeRate ? parseFloat(amount) * parseFloat(exchangeRate) : null
 
   return (
-    <Modal open={open} onClose={onClose} title={initial ? 'Editar movimiento' : 'Nuevo movimiento'}>
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={
+        recurring
+          ? 'Editar recurrente'
+          : recurringMode
+            ? 'Nuevo recurrente'
+            : initial
+              ? 'Editar movimiento'
+              : 'Nuevo movimiento'
+      }
+    >
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         {error && <ErrorState message={error} />}
 
@@ -335,7 +422,9 @@ export function TransactionFormModal({ open, onClose, onSuccess, initial }: Prop
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="label">Fecha</label>
+            <label className="label">
+              {recurring ? 'Próxima fecha' : recurringMode ? 'Primera fecha' : 'Fecha'}
+            </label>
             <input type="date" {...register('transactionDate', { required: true })} className="input" />
           </div>
           <div>
@@ -354,6 +443,41 @@ export function TransactionFormModal({ open, onClose, onSuccess, initial }: Prop
           <p className="text-xs text-brand-700 bg-brand-50 rounded px-3 py-2">
             Cuenta como ahorro del mes, no como gasto.
           </p>
+        )}
+
+        {!initial && (
+          <div className="rounded-md border border-gray-200 p-3 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Repetir</label>
+                <select {...register('frequency')} className="input">
+                  {!isRecurringForm && <option value="">No repetir</option>}
+                  <option value="WEEKLY">Cada semana</option>
+                  <option value="MONTHLY">Cada mes</option>
+                  <option value="YEARLY">Cada año</option>
+                </select>
+              </div>
+              {repeats && (
+                <div>
+                  <label className="label">Hasta (opcional)</label>
+                  <input type="date" {...register('endDate')} className="input" />
+                </div>
+              )}
+            </div>
+            {repeats && (
+              <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <input type="checkbox" {...register('autoCreate')} className="mt-1" />
+                <span>
+                  Registrar automáticamente
+                  <span className="block text-xs text-gray-500">
+                    {autoCreate
+                      ? 'Se registra solo en cada fecha.'
+                      : 'Queda pendiente en el panel para que confirmes el monto (útil para luz o agua).'}
+                  </span>
+                </span>
+              </label>
+            )}
+          </div>
         )}
 
         <div className="flex justify-end gap-2 pt-2">

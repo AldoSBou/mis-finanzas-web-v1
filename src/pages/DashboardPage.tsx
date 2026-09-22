@@ -14,6 +14,7 @@ import {
 import { ErrorState, Loading } from '@/components/ui/States'
 import { PeriodSelector } from '@/components/ui/PeriodSelector'
 import { getErrorMessage } from '@/lib/api-client'
+import { UpcomingCard } from '@/features/recurring/UpcomingCard'
 
 export function DashboardPage() {
   const [period, setPeriod] = useState(currentPeriod())
@@ -77,7 +78,11 @@ export function DashboardPage() {
               label="Disponible"
               value={fmt(data.balance)}
               accent={parseFloat(data.balance) >= 0 ? 'positive' : 'negative'}
-              hint="Ingresos − gastos − ahorro"
+              hint={
+                data.projectedBalance !== null
+                  ? `Fin de mes (estimado): ${fmt(data.projectedBalance)}`
+                  : 'Ingresos − gastos − ahorro'
+              }
             />
           </div>
 
@@ -159,6 +164,12 @@ export function DashboardPage() {
               )}
             </div>
           </div>
+
+          {data.projectedBalance !== null && (
+            <div className="mt-4">
+              <UpcomingCard items={data.upcoming} />
+            </div>
+          )}
 
           {accounts.length > 0 && (
             <div className="card mt-4">

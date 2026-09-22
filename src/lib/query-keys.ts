@@ -17,6 +17,9 @@ export const queryKeys = {
     detail: (id: number) => ['transactions', id] as const,
     exchangeRate: (currency: string) => ['transactions', 'exchange-rate', currency] as const,
   },
+  recurring: {
+    all: ['recurring'] as const,
+  },
   rules: {
     all: ['allocation-rules'] as const,
   },

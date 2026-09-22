@@ -99,6 +99,8 @@ export interface Transaction {
   transactionDate: string
   description: string | null
   paymentMethod: string | null
+  /** Recurrente que generó el movimiento */
+  recurringId: number | null
   createdAt: string
 }
 
@@ -114,6 +116,69 @@ export interface TransactionRequest {
   transactionDate: string
   description?: string
   paymentMethod?: string
+}
+
+// ===== Recurring =====
+export type Frequency = 'WEEKLY' | 'MONTHLY' | 'YEARLY'
+
+export interface Recurring {
+  id: number
+  type: TransactionType
+  accountId: number
+  accountName: string | null
+  toAccountId: number | null
+  toAccountName: string | null
+  categoryId: number | null
+  categoryName: string | null
+  categoryColor: string | null
+  amount: string
+  currency: string | null
+  toAmount: string | null
+  exchangeRate: string | null
+  description: string | null
+  frequency: Frequency
+  nextDate: string
+  endDate: string | null
+  autoCreate: boolean
+  active: boolean
+}
+
+export interface RecurringRequest {
+  type: TransactionType
+  accountId: number
+  categoryId?: number
+  toAccountId?: number
+  amount: string | number
+  toAmount?: string | number
+  exchangeRate?: string | number
+  description?: string
+  frequency: Frequency
+  /** Primera ocurrencia (o próxima, al editar) */
+  startDate: string
+  endDate?: string
+  autoCreate: boolean
+}
+
+export interface RegisterOccurrenceRequest {
+  amount?: string | number
+  exchangeRate?: string | number
+  date?: string
+}
+
+export interface UpcomingItem {
+  recurringId: number
+  type: TransactionType
+  description: string | null
+  categoryName: string | null
+  accountName: string | null
+  toAccountName: string | null
+  amount: string
+  currency: string
+  amountBase: string
+  date: string
+  /** Ya venció y espera confirmación */
+  overdue: boolean
+  autoCreate: boolean
 }
 
 export interface ExchangeRate {
@@ -193,6 +258,10 @@ export interface DashboardResponse {
   activeRule: AllocationRule | null
   bucketSummaries: BucketSummary[]
   topCategories: CategoryTotal[]
+  /** Solo mes actual: recurrentes pendientes y por venir */
+  upcoming: UpcomingItem[]
+  /** Solo mes actual: disponible estimado a fin de mes */
+  projectedBalance: string | null
 }
 
 // ===== Errors (RFC 7807) =====

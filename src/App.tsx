@@ -8,6 +8,7 @@ import { RegisterPage } from '@/pages/RegisterPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { TransactionsPage } from '@/pages/TransactionsPage'
 import { AccountsPage } from '@/pages/AccountsPage'
+import { RecurringPage } from '@/pages/RecurringPage'
 import { RulesPage } from '@/pages/RulesPage'
 import { CategoriesPage } from '@/pages/CategoriesPage'
 import { ConfigurePage } from '@/pages/ConfigurePage'
@@ -41,6 +42,7 @@ export function App() {
               <Route index element={<DashboardPage />} />
               <Route path="movimientos" element={<TransactionsPage />} />
               <Route path="cuentas" element={<AccountsPage />} />
+              <Route path="recurrentes" element={<RecurringPage />} />
               <Route path="configurar" element={<ConfigurePage />} />
               <Route path="reglas" element={<RulesPage />} />
               <Route path="categorias" element={<CategoriesPage />} />

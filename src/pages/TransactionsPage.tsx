@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { ArrowRightLeft, Pencil, Trash2 } from 'lucide-react'
+import { ArrowRightLeft, Pencil, Repeat, Trash2 } from 'lucide-react'
 import { accountsApi, transactionsApi } from '@/api/services'
 import { queryKeys } from '@/lib/query-keys'
 import { currentPeriod, formatCurrency, periodLabel } from '@/lib/format'
@@ -195,7 +195,12 @@ function TransactionRow({
         </div>
       )}
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">{title}</p>
+        <p className="text-sm font-medium truncate flex items-center gap-1">
+          {title}
+          {tx.recurringId && (
+            <Repeat className="w-3 h-3 text-gray-400 flex-shrink-0" aria-label="Recurrente" />
+          )}
+        </p>
         <p className="text-xs text-gray-500 truncate">{subtitle}</p>
       </div>
       <div className="text-right">

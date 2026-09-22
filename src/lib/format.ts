@@ -91,6 +91,24 @@ export function accountTypeLabel(type: string): string {
   return ACCOUNT_TYPE_LABELS[type] ?? type
 }
 
+const FREQUENCY_LABELS: Record<string, string> = {
+  WEEKLY: 'Semanal',
+  MONTHLY: 'Mensual',
+  YEARLY: 'Anual',
+}
+
+export function frequencyLabel(frequency: string): string {
+  return FREQUENCY_LABELS[frequency] ?? frequency
+}
+
+/** 'YYYY-MM-DD' → '22 set.' (fecha corta en español, sin zona horaria) */
+export function shortDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Intl.DateTimeFormat('es-PE', { day: 'numeric', month: 'short' }).format(
+    new Date(y, m - 1, d),
+  )
+}
+
 /** Monedas ofrecidas en los formularios */
 export const CURRENCIES = ['PEN', 'USD', 'EUR'] as const
 

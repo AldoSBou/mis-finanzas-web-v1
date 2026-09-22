@@ -10,6 +10,9 @@ import type {
   ExchangeRate,
   MonthlyBudget,
   MonthlyBudgetRequest,
+  Recurring,
+  RecurringRequest,
+  RegisterOccurrenceRequest,
   Transaction,
   TransactionPage,
   TransactionRequest,
@@ -82,6 +85,17 @@ export const transactionsApi = {
     if (r.status === 204) return null
     return r.data as ExchangeRate
   },
+}
+
+export const recurringApi = {
+  list: () => api.get<Recurring[]>('/recurring').then((r) => r.data),
+  create: (req: RecurringRequest) => api.post<Recurring>('/recurring', req).then((r) => r.data),
+  update: (id: number, req: RecurringRequest) =>
+    api.put<Recurring>(`/recurring/${id}`, req).then((r) => r.data),
+  delete: (id: number) => api.delete<void>(`/recurring/${id}`).then((r) => r.data),
+  register: (id: number, req: RegisterOccurrenceRequest = {}) =>
+    api.post<void>(`/recurring/${id}/register`, req).then((r) => r.data),
+  skip: (id: number) => api.post<void>(`/recurring/${id}/skip`).then((r) => r.data),
 }
 
 export const allocationRulesApi = {
