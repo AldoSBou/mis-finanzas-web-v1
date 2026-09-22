@@ -13,6 +13,9 @@ const API_BASE = import.meta.env.VITE_API_URL ?? '/api'
 
 const TOKEN_KEY = 'mis-finanzas:token'
 
+/** Reintentos de un GET mientras el backend despierta (esperas de 1.5s, 3s, 4.5s, 6s). */
+const WAKE_RETRIES = 4
+
 export const tokenStorage = {
   get: () => localStorage.getItem(TOKEN_KEY),
   set: (token: string) => localStorage.setItem(TOKEN_KEY, token),
@@ -81,7 +84,19 @@ api.interceptors.response.use(
     }
     return response
   },
-  (error: AxiosError) => {
+  async (error: AxiosError) => {
+    // El backend en Railway se duerme sin uso: la primera petición puede fallar
+    // (502/503/504, o sin respuesta porque el proxy no manda CORS) mientras arranca.
+    // Reintentamos solo lecturas (GET), que son seguras de repetir.
+    const config = error.config as (typeof error.config & { _retries?: number }) | undefined
+    const status = error.response?.status
+    const waking = !error.response || status === 502 || status === 503 || status === 504
+    if (config && config.method === 'get' && waking && (config._retries ?? 0) < WAKE_RETRIES) {
+      config._retries = (config._retries ?? 0) + 1
+      await new Promise((r) => setTimeout(r, 1500 * config._retries!))
+      return api(config)
+    }
+
     // Errores HTTP (4xx, 5xx) con envelope
     if (error.response?.data) {
       const envelope = error.response.data as ApiResponse<unknown>
