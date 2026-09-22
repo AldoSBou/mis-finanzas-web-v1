@@ -189,6 +189,17 @@ export interface ExchangeRate {
   date: string | null
 }
 
+/** Filtros de búsqueda (todos opcionales; sin rango = mes actual) */
+export interface TransactionSearch {
+  period?: string
+  from?: string
+  to?: string
+  accountId?: number
+  categoryId?: number
+  type?: TransactionType
+  q?: string
+}
+
 export interface TransactionPage {
   items: Transaction[]
   total: number

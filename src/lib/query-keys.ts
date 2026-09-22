@@ -12,8 +12,8 @@ export const queryKeys = {
   },
   transactions: {
     all: ['transactions'] as const,
-    list: (period: string, page: number, size: number, accountId?: number) =>
-      ['transactions', period, { page, size, accountId }] as const,
+    list: (search: object, page: number, size: number) =>
+      ['transactions', 'list', search, { page, size }] as const,
     detail: (id: number) => ['transactions', id] as const,
     exchangeRate: (currency: string) => ['transactions', 'exchange-rate', currency] as const,
   },

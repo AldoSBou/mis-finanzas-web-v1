@@ -18,6 +18,7 @@ import type {
   Transaction,
   TransactionPage,
   TransactionRequest,
+  TransactionSearch,
 } from '@/types/api'
 import type { Meta } from '@/types/envelope'
 
@@ -55,14 +56,9 @@ export const accountsApi = {
 }
 
 export const transactionsApi = {
-  list: async (
-    period: string,
-    page = 0,
-    size = 20,
-    accountId?: number,
-  ): Promise<TransactionPage> => {
+  list: async (search: TransactionSearch, page = 0, size = 20): Promise<TransactionPage> => {
     const r = await api.get<Transaction[]>('/transactions', {
-      params: { period, page, size, accountId },
+      params: { ...search, page, size },
     })
     const meta = (r as { meta?: Meta }).meta
     const pag = meta?.pagination
@@ -79,6 +75,21 @@ export const transactionsApi = {
   update: (id: number, req: TransactionRequest) =>
     api.put<Transaction>(`/transactions/${id}`, req).then((r) => r.data),
   delete: (id: number) => api.delete<void>(`/transactions/${id}`).then((r) => r.data),
+  /** Descarga un CSV con los movimientos que cumplen los filtros. */
+  exportCsv: async (search: TransactionSearch): Promise<void> => {
+    const r = await api.get<Blob>('/transactions/export', {
+      params: search,
+      responseType: 'blob',
+    })
+    const disposition = String(r.headers['content-disposition'] ?? '')
+    const name = /filename="([^"]+)"/.exec(disposition)?.[1] ?? 'movimientos.csv'
+    const url = URL.createObjectURL(r.data)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = name
+    link.click()
+    URL.revokeObjectURL(url)
+  },
   /** Último tipo de cambio usado para la moneda; null si nunca se usó (204). */
   latestExchangeRate: async (currency: string): Promise<ExchangeRate | null> => {
     const r = await api.get<ExchangeRate | ''>('/transactions/exchange-rate', {

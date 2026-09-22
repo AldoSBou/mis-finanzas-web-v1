@@ -110,9 +110,14 @@ O en producción, configura el deployment para que sirva ambos en el mismo domin
 - [ ] CRUD completo de categorías.
 - [x] Configurar ingreso esperado mensual (`POST /api/budgets`).
 - [x] Cuentas, transferencias y multi-moneda.
-- [ ] Filtros adicionales en movimientos (categoría, tipo, búsqueda).
-- [ ] Gráfico de tendencia con Recharts en el dashboard.
-- [ ] Importador CSV de movimientos bancarios.
+- [x] Movimientos recurrentes (automáticos o con confirmación) y proyección de fin de mes.
+- [x] Presupuesto por categoría con alertas.
+- [x] Reportes con gráficos (Recharts) y vista de tabla.
+- [x] Búsqueda, filtros y exportación CSV.
+- [ ] Importar estados de cuenta (CSV/Excel) con reglas de categorización.
+- [ ] Metas de ahorro.
+- [ ] Tarjetas de crédito con cuotas.
+- [ ] Registro sin conexión.
 - [ ] Modo oscuro.
 - [ ] i18n si quieres soportar múltiples idiomas.
 
