@@ -104,10 +104,15 @@ export function parseCsv(text: string): Cell[][] {
     .map((l) => splitCsvLine(l, delimiter).map((c) => (c.trim() === '' ? null : c.trim())))
 }
 
-export async function readFile(file: File): Promise<Cell[][]> {
+/** Lee CSV, Excel o PDF. Con PDF protegido lanza PdfPasswordError (reintentar con `password`). */
+export async function readFile(file: File, password?: string): Promise<Cell[][]> {
   const buffer = await file.arrayBuffer()
   if (/\.(csv|txt)$/i.test(file.name)) {
     return parseCsv(decodeText(buffer))
+  }
+  if (/\.pdf$/i.test(file.name)) {
+    const { readPdf } = await import('./pdf-parser')
+    return readPdf(buffer, password)
   }
   // SheetJS pesa ~400 KB: se descarga solo al leer un Excel
   const XLSX = await import('xlsx')
@@ -123,7 +128,8 @@ export async function readFile(file: File): Promise<Cell[][]> {
 const KEYWORDS = {
   date: /fecha|date/,
   description: /descrip|concepto|detalle|glosa|movimiento|referencia|comercio|establecimiento/,
-  amount: /monto|importe|valor|amount/,
+  // En estados de cuenta de tarjeta las columnas de monto se llaman por moneda
+  amount: /monto|importe|valor|amount|soles|dolares/,
   debit: /cargo|debito|retiro|egreso|salida/,
   credit: /abono|credito|deposito|ingreso|entrada/,
 }

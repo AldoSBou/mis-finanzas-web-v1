@@ -15,6 +15,7 @@ Frontend de la app de control de finanzas personales. **React 18 + TypeScript + 
 - **Recharts** preinstalado para gráficos futuros
 - **Lucide React** para iconos
 - **SheetJS** (desde su CDN oficial; la versión de npm está abandonada) para leer Excel, cargado solo al importar
+- **pdf.js** (pdfjs-dist) para leer estados de cuenta en PDF, cargado solo al abrir un PDF
 - **Vitest** para los tests del lector de estados de cuenta (`npm test`)
 
 ## Estructura
@@ -116,7 +117,7 @@ O en producción, configura el deployment para que sirva ambos en el mismo domin
 - [x] Presupuesto por categoría con alertas.
 - [x] Reportes con gráficos (Recharts) y vista de tabla.
 - [x] Búsqueda, filtros y exportación CSV.
-- [x] Importar estados de cuenta (CSV/Excel) con reglas de categorización y deshacer.
+- [x] Importar estados de cuenta (PDF, CSV, Excel) con reglas de categorización y deshacer. PDF probado con el estado de cuenta de tarjeta Scotiabank (cuadra al centavo); PDFs con contraseña se abren en el navegador.
 - [ ] Metas de ahorro.
 - [ ] Tarjetas de crédito con cuotas.
 - [ ] Registro sin conexión.

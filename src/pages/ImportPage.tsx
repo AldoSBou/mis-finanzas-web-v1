@@ -22,8 +22,9 @@ import {
   type DateFormat,
   type DecimalStyle,
 } from '@/lib/import-parser'
+import { PdfPasswordError } from '@/lib/pdf-parser'
 import { queryKeys } from '@/lib/query-keys'
-import type { ImportBatch } from '@/types/api'
+import type { Account, ImportBatch } from '@/types/api'
 
 type Step = 'file' | 'map' | 'review' | 'done'
 
@@ -36,6 +37,26 @@ interface SavedSetup {
 }
 
 const MAX_ROWS = 1000
+
+const plainText = (c: Cell) =>
+  String(c ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+
+const isSolesColumn = (c: Cell) => /soles|s\/|\bpen\b/.test(plainText(c))
+const isDollarColumn = (c: Cell) => /dolar|us\$|\busd\b/.test(plainText(c))
+
+/**
+ * Estados de cuenta bimoneda (columnas Soles y Dólares): se importa la columna de la
+ * moneda de la cuenta destino.
+ */
+function amountColumnFor(header: Cell[], account: Account, guess: number | null): number | null {
+  const soles = header.findIndex(isSolesColumn)
+  const dollars = header.findIndex(isDollarColumn)
+  if (soles < 0 || dollars < 0) return guess
+  return account.currency === 'USD' ? dollars : soles
+}
 const setupKey = (accountId: string) => `mis-finanzas:import-setup:${accountId}`
 
 function loadSetup(accountId: string): SavedSetup | null {
@@ -79,6 +100,10 @@ export function ImportPage() {
   const [exchangeRate, setExchangeRate] = useState('')
   const [result, setResult] = useState<ImportBatch | null>(null)
   const [readError, setReadError] = useState<string | null>(null)
+  // PDF con contraseña: se guarda el archivo para reintentar con la clave
+  const [lockedPdf, setLockedPdf] = useState<File | null>(null)
+  const [pdfPassword, setPdfPassword] = useState('')
+  const [passwordError, setPasswordError] = useState<string | null>(null)
 
   const { data: accounts = [] } = useQuery({
     queryKey: queryKeys.accounts.list(false),
@@ -105,13 +130,20 @@ export function ImportPage() {
   }
 
   // ---------- Paso 1: archivo ----------
-  const onFile = async (e: ChangeEvent<HTMLInputElement>) => {
+  const onFile = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     e.target.value = ''
-    if (!file || !account) return
+    if (file) void openFile(file)
+  }
+
+  const openFile = async (file: File, password?: string) => {
+    if (!account) return
     setReadError(null)
+    setPasswordError(null)
     try {
-      const rows = await readFile(file)
+      const rows = await readFile(file, password)
+      setLockedPdf(null)
+      setPdfPassword('')
       if (rows.length === 0) throw new Error('El archivo está vacío')
       const h = detectHeaderRow(rows)
       const headerSig = JSON.stringify(rows[h])
@@ -130,6 +162,7 @@ export function ImportPage() {
         setDecimal(saved.decimal)
         setPositiveIsIncome(saved.positiveIsIncome)
       } else {
+        guess.amount = guess.amount !== null ? amountColumnFor(rows[h], account, guess.amount) : null
         setMapping(guess)
         setDateFormat(detectDateFormat(colValues(guess.date)))
         setDecimal(detectDecimalStyle([...colValues(moneyCol), ...colValues(guess.credit)]))
@@ -137,8 +170,13 @@ export function ImportPage() {
       }
       setStep('map')
     } catch (err) {
+      if (err instanceof PdfPasswordError) {
+        setLockedPdf(file)
+        setPasswordError(err.incorrect ? 'Contraseña incorrecta. Intenta de nuevo.' : null)
+        return
+      }
       setReadError(
-        `No se pudo leer el archivo${err instanceof Error ? `: ${err.message}` : ''}. Usa CSV o Excel (.xlsx, .xls).`,
+        `No se pudo leer el archivo${err instanceof Error ? `: ${err.message}` : ''}. Usa PDF, CSV o Excel (.xlsx, .xls).`,
       )
     }
   }
@@ -269,19 +307,49 @@ export function ImportPage() {
               >
                 <FileSpreadsheet className="w-8 h-8 text-gray-400" />
                 <span className="text-sm font-medium">
-                  {account ? 'Elegir archivo (.csv, .xlsx, .xls)' : 'Primero elige la cuenta'}
+                  {account ? 'Elegir archivo (.pdf, .csv, .xlsx, .xls)' : 'Primero elige la cuenta'}
                 </span>
                 <span className="text-xs text-gray-500">
-                  Descárgalo desde la banca por internet, en "Movimientos" o "Estado de cuenta"
+                  El estado de cuenta en PDF que te envía el banco, o los movimientos en Excel/CSV
+                  de la banca por internet
                 </span>
                 <input
                   type="file"
-                  accept=".csv,.txt,.xlsx,.xls"
+                  accept=".pdf,.csv,.txt,.xlsx,.xls"
                   onChange={onFile}
                   disabled={!account}
                   className="sr-only"
                 />
               </label>
+              {lockedPdf && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    void openFile(lockedPdf, pdfPassword)
+                  }}
+                  className="rounded-md border border-gray-200 p-3 space-y-2"
+                >
+                  <p className="text-sm">
+                    <strong>{lockedPdf.name}</strong> tiene contraseña (suele ser tu DNI). Se usa
+                    solo en tu navegador para abrirlo; no se guarda ni se envía.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      value={pdfPassword}
+                      onChange={(e) => setPdfPassword(e.target.value)}
+                      autoFocus
+                      autoComplete="off"
+                      className="input py-1.5"
+                      aria-label="Contraseña del PDF"
+                    />
+                    <button type="submit" disabled={!pdfPassword} className="btn-primary py-1.5">
+                      Abrir
+                    </button>
+                  </div>
+                  {passwordError && <p className="text-xs text-red-600">{passwordError}</p>}
+                </form>
+              )}
               {readError && <ErrorState message={readError} />}
             </section>
           )}
@@ -291,6 +359,13 @@ export function ImportPage() {
               <p className="text-sm text-gray-600">
                 <strong>{fileName}</strong> · Revisa que las columnas sean correctas.
               </p>
+              {header.some(isSolesColumn) && header.some(isDollarColumn) && (
+                <p className="text-xs text-brand-700 bg-brand-50 rounded px-3 py-2">
+                  Este estado de cuenta tiene montos en soles y en dólares. Se importa la columna
+                  elegida en "Monto"; para la otra moneda, vuelve a importar el mismo archivo en tu
+                  cuenta en esa moneda.
+                </p>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="label">Fila de encabezados</label>
