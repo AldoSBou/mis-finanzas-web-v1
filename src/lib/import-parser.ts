@@ -104,11 +104,18 @@ export function parseCsv(text: string): Cell[][] {
     .map((l) => splitCsvLine(l, delimiter).map((c) => (c.trim() === '' ? null : c.trim())))
 }
 
+export interface FileContent {
+  rows: Cell[][]
+  /** Todo el texto del archivo, para reconocer el banco */
+  text: string
+}
+
 /** Lee CSV, Excel o PDF. Con PDF protegido lanza PdfPasswordError (reintentar con `password`). */
-export async function readFile(file: File, password?: string): Promise<Cell[][]> {
+export async function readFile(file: File, password?: string): Promise<FileContent> {
   const buffer = await file.arrayBuffer()
   if (/\.(csv|txt)$/i.test(file.name)) {
-    return parseCsv(decodeText(buffer))
+    const text = decodeText(buffer)
+    return { rows: parseCsv(text), text }
   }
   if (/\.pdf$/i.test(file.name)) {
     const { readPdf } = await import('./pdf-parser')
@@ -118,7 +125,8 @@ export async function readFile(file: File, password?: string): Promise<Cell[][]>
   const XLSX = await import('xlsx')
   const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
   const ws = wb.Sheets[wb.SheetNames[0]]
-  return XLSX.utils.sheet_to_json<Cell[]>(ws, { header: 1, raw: true, defval: null, blankrows: false })
+  const rows = XLSX.utils.sheet_to_json<Cell[]>(ws, { header: 1, raw: true, defval: null, blankrows: false })
+  return { rows, text: rows.map((r) => r.join(' ')).join('\n') }
 }
 
 // ---------------------------------------------------------------
@@ -319,6 +327,56 @@ export function buildRows(
     result.push({ line: i + 1, date, description, amount: Math.round(amount * 100) / 100 })
   }
   return { rows: result, skipped }
+}
+
+// ---------------------------------------------------------------
+// Cuadre con los totales del estado de cuenta
+// ---------------------------------------------------------------
+
+export interface Reconciliation {
+  opening: number
+  closing: number
+  /** Variación del saldo según los movimientos leídos */
+  change: number
+  /** closing − opening − change: 0 si no falta ni sobra nada */
+  difference: number
+  ok: boolean
+}
+
+/**
+ * Compara los movimientos leídos con el saldo inicial y final que trae el archivo
+ * (p. ej. "Saldo Anterior" y "Deuda Total"). En una cuenta las entradas suben el saldo;
+ * en una tarjeta el saldo es deuda, así que los consumos lo suben.
+ * Devuelve null si el archivo no trae esos totales en la columna de monto elegida.
+ */
+export function reconcile(
+  rows: Cell[][],
+  headerIndex: number,
+  mapping: ColumnMapping,
+  options: ParseOptions,
+  parsed: ParsedRow[],
+  patterns: { opening: RegExp; closing: RegExp },
+): Reconciliation | null {
+  if (mapping.amount === null) return null
+  let opening: number | null = null
+  let closing: number | null = null
+  for (let i = headerIndex + 1; i < rows.length; i++) {
+    const r = rows[i]
+    const label = r.find((c): c is string => typeof c === 'string' && (patterns.opening.test(c.trim()) || patterns.closing.test(c.trim())))
+    if (!label) continue
+    const value = parseAmount(r[mapping.amount] ?? null, options.decimal)
+    if (value === null) continue
+    if (patterns.opening.test(label.trim())) {
+      if (opening === null) opening = value
+    } else {
+      closing = value
+    }
+  }
+  if (opening === null || closing === null) return null
+  const sum = parsed.reduce((s, r) => s + r.amount, 0)
+  const change = options.positiveIsIncome ? sum : -sum
+  const difference = Math.round((closing - opening - change) * 100) / 100
+  return { opening, closing, change: Math.round(change * 100) / 100, difference, ok: Math.abs(difference) < 0.005 }
 }
 
 /** Letra de columna estilo Excel: 0 → A, 25 → Z, 26 → AA. */

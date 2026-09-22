@@ -11,7 +11,8 @@ export interface ReviewRow {
   include: boolean
   /** '' sin elegir · 'c:<id>' categoría · 't:<id>' transferencia con esa cuenta */
   choice: string
-  source: SuggestionSource
+  /** De dónde salió la sugerencia; PAYMENT = pago de tarjeta según el perfil del banco */
+  source: SuggestionSource | 'PAYMENT'
   duplicate: boolean
 }
 
@@ -168,10 +169,12 @@ export function ReviewStep({ rows, onChange, account, accounts, categories }: Pr
                           title={
                             r.source === 'RULE'
                               ? 'Sugerida por una regla'
-                              : 'Sugerida porque ya categorizaste algo parecido'
+                              : r.source === 'PAYMENT'
+                                ? 'Pago de la tarjeta: se registra como transferencia desde tu cuenta de pago'
+                                : 'Sugerida porque ya categorizaste algo parecido'
                           }
                         >
-                          {r.source === 'RULE' ? 'Regla' : 'Historial'}
+                          {r.source === 'RULE' ? 'Regla' : r.source === 'PAYMENT' ? 'Pago' : 'Historial'}
                         </span>
                       )}
                     </div>

@@ -84,6 +84,13 @@ export function toLines(items: PdfItem[]): PdfItem[][] {
 const isTransactionLine = (line: PdfItem[]) =>
   line.length >= 2 && isDate(line[0].str) && line.some((i) => isAmount(i.str))
 
+/** Totales del período (se conservan para cuadrar; al no tener fecha no se importan) */
+const SUMMARY_RE =
+  /^(saldo anterior|saldo inicial|deuda anterior|deuda total|saldo final|saldo actual|nuevo saldo|total a pagar)$/i
+
+const isSummaryLine = (line: PdfItem[]) =>
+  SUMMARY_RE.test(line[0].str.trim()) && line.some((i) => isAmount(i.str))
+
 /** Agrupa posiciones cercanas (±8 pt) en columnas. */
 function clusterColumns(lines: PdfItem[][]): Column[] {
   const columns: Column[] = []
@@ -199,14 +206,14 @@ export function pdfToTable(pages: PdfItem[][]): Cell[][] {
   for (const lines of pageLines) {
     let last: Cell[] | null = null
     for (const line of lines) {
-      if (isTransactionLine(line)) {
+      if (isTransactionLine(line) || isSummaryLine(line)) {
         const row: Cell[] = columns.map(() => null)
         for (const it of line) {
           const i = columnFor(it, columns)
           row[i] = row[i] ? `${row[i]} ${it.str}` : it.str
         }
         rows.push(row)
-        last = row
+        last = isTransactionLine(line) ? row : null
       } else if (
         // Descripción que continúa en la línea siguiente (empieza en su columna, sin montos)
         last &&
@@ -238,7 +245,10 @@ export class PdfPasswordError extends Error {
   }
 }
 
-export async function readPdf(buffer: ArrayBuffer, password?: string): Promise<Cell[][]> {
+export async function readPdf(
+  buffer: ArrayBuffer,
+  password?: string,
+): Promise<{ rows: Cell[][]; text: string }> {
   // pdf.js pesa ~1 MB: se descarga solo al abrir un PDF
   const pdfjs = await import('pdfjs-dist')
   const { default: workerUrl } = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
@@ -269,5 +279,5 @@ export async function readPdf(buffer: ArrayBuffer, password?: string): Promise<C
       'no se encontraron movimientos. Si es un PDF escaneado (imagen), descarga el estado de cuenta en Excel o CSV',
     )
   }
-  return table
+  return { rows: table, text: pages.flat().map((i) => i.str).join(' ') }
 }

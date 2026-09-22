@@ -17,12 +17,14 @@ import {
   detectHeaderRow,
   guessMapping,
   readFile,
+  reconcile,
   type Cell,
   type ColumnMapping,
   type DateFormat,
   type DecimalStyle,
 } from '@/lib/import-parser'
 import { PdfPasswordError } from '@/lib/pdf-parser'
+import { BANK_PROFILES, applyProfile, detectProfile, profileById } from '@/lib/bank-profiles'
 import { queryKeys } from '@/lib/query-keys'
 import type { Account, ImportBatch } from '@/types/api'
 
@@ -58,6 +60,25 @@ function amountColumnFor(header: Cell[], account: Account, guess: number | null)
   return account.currency === 'USD' ? dollars : soles
 }
 const setupKey = (accountId: string) => `mis-finanzas:import-setup:${accountId}`
+const profileKey = (accountId: string) => `mis-finanzas:import-profile:${accountId}`
+const paymentKey = (accountId: string) => `mis-finanzas:import-payment-account:${accountId}`
+
+function readPref(key: string): string {
+  try {
+    return localStorage.getItem(key) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function writePref(key: string, value: string) {
+  try {
+    if (value) localStorage.setItem(key, value)
+    else localStorage.removeItem(key)
+  } catch {
+    // Sin storage: solo se pierde la preferencia
+  }
+}
 
 function loadSetup(accountId: string): SavedSetup | null {
   try {
@@ -104,6 +125,10 @@ export function ImportPage() {
   const [lockedPdf, setLockedPdf] = useState<File | null>(null)
   const [pdfPassword, setPdfPassword] = useState('')
   const [passwordError, setPasswordError] = useState<string | null>(null)
+  const [profileId, setProfileId] = useState('auto')
+  const [detectedName, setDetectedName] = useState<string | null>(null)
+  // Tarjetas: cuenta desde la que se paga, para marcar los pagos como transferencia
+  const [paymentAccountId, setPaymentAccountId] = useState('')
 
   const { data: accounts = [] } = useQuery({
     queryKey: queryKeys.accounts.list(false),
@@ -115,12 +140,32 @@ export function ImportPage() {
   })
   const account = accounts.find((a) => String(a.id) === accountId)
   const needsRate = !!account && account.currency !== baseCurrency
+  const profile = profileById(profileId)
+  const isCard = account?.type === 'CREDIT_CARD'
+  const paymentAccounts = accounts.filter(
+    (a) => account && a.id !== account.id && a.currency === account.currency && a.type !== 'CREDIT_CARD',
+  )
+
+  const selectAccount = (id: string) => {
+    setAccountId(id)
+    setProfileId(readPref(profileKey(id)) || 'auto')
+    setPaymentAccountId(readPref(paymentKey(id)))
+  }
 
   const header = cells[headerIndex] ?? []
   const columnCount = Math.max(0, ...cells.slice(headerIndex, headerIndex + 30).map((r) => r.length))
   const parsed = useMemo(
     () => buildRows(cells, headerIndex, mapping, { dateFormat, decimal, positiveIsIncome }),
     [cells, headerIndex, mapping, dateFormat, decimal, positiveIsIncome],
+  )
+  // Cuadre con el saldo inicial y final del archivo (si los trae)
+  const reconciliation = useMemo(
+    () =>
+      reconcile(cells, headerIndex, mapping, { dateFormat, decimal, positiveIsIncome }, parsed.rows, {
+        opening: profile.openingPattern,
+        closing: profile.closingPattern,
+      }),
+    [cells, headerIndex, mapping, dateFormat, decimal, positiveIsIncome, parsed.rows, profile],
   )
 
   const invalidateData = () => {
@@ -141,9 +186,18 @@ export function ImportPage() {
     setReadError(null)
     setPasswordError(null)
     try {
-      const rows = await readFile(file, password)
+      const { rows, text } = await readFile(file, password)
       setLockedPdf(null)
       setPdfPassword('')
+      // Si el archivo es de un banco con perfil verificado, se usa ese perfil
+      let active = profileById(profileId)
+      const detected = detectProfile(text)
+      setDetectedName(null)
+      if (detected && profileId === 'auto') {
+        active = detected
+        setProfileId(detected.id)
+        setDetectedName(detected.name)
+      }
       if (rows.length === 0) throw new Error('El archivo está vacío')
       const h = detectHeaderRow(rows)
       const headerSig = JSON.stringify(rows[h])
@@ -161,6 +215,12 @@ export function ImportPage() {
         setDateFormat(saved.dateFormat)
         setDecimal(saved.decimal)
         setPositiveIsIncome(saved.positiveIsIncome)
+      } else if (active.id !== 'auto') {
+        const mapped = applyProfile(active, rows[h], account.currency, guess)
+        setMapping(mapped)
+        setDateFormat(detectDateFormat(colValues(mapped.date)))
+        setDecimal(detectDecimalStyle(colValues(mapped.amount ?? mapped.debit)))
+        setPositiveIsIncome(active.positiveIsIncome ?? account.type !== 'CREDIT_CARD')
       } else {
         guess.amount = guess.amount !== null ? amountColumnFor(rows[h], account, guess.amount) : null
         setMapping(guess)
@@ -195,16 +255,25 @@ export function ImportPage() {
       }
       return rows.map<ReviewRow>((r, i) => {
         const s = suggestions[i]
+        // Pago de la tarjeta (entra dinero a la tarjeta): transferencia desde la cuenta de pago
+        const isPayment =
+          isCard && !!paymentAccountId && r.amount > 0 && profile.paymentPattern.test(r.description)
         return {
           ...r,
           include: !s.duplicate,
-          choice: s.suggestedCategoryId ? `c:${s.suggestedCategoryId}` : '',
-          source: s.source,
+          choice: isPayment
+            ? `t:${paymentAccountId}`
+            : s.suggestedCategoryId
+              ? `c:${s.suggestedCategoryId}`
+              : '',
+          source: isPayment ? 'PAYMENT' : s.source,
           duplicate: s.duplicate,
         }
       })
     },
     onSuccess: (rows) => {
+      writePref(profileKey(accountId), profileId === 'auto' ? '' : profileId)
+      writePref(paymentKey(accountId), paymentAccountId)
       saveSetup(accountId, {
         header: JSON.stringify(header),
         mapping,
@@ -287,7 +356,7 @@ export function ImportPage() {
                 <label className="label">Cuenta del estado de cuenta</label>
                 <select
                   value={accountId}
-                  onChange={(e) => setAccountId(e.target.value)}
+                  onChange={(e) => selectAccount(e.target.value)}
                   className="input"
                 >
                   <option value="">Selecciona...</option>
@@ -298,6 +367,56 @@ export function ImportPage() {
                   ))}
                 </select>
               </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Banco y producto</label>
+                  <select
+                    value={profileId}
+                    onChange={(e) => setProfileId(e.target.value)}
+                    className="input"
+                  >
+                    {BANK_PROFILES.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                        {p.verified ? ' ✓' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {isCard && (
+                  <div>
+                    <label className="label">Pagas la tarjeta desde</label>
+                    <select
+                      value={paymentAccountId}
+                      onChange={(e) => setPaymentAccountId(e.target.value)}
+                      className="input"
+                    >
+                      <option value="">No marcar pagos</option>
+                      {paymentAccounts.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-gray-500">
+                {profile.hint}
+                {profile.id === 'auto' &&
+                  ' ¿Tu banco no aparece? La detección automática funciona con la mayoría; si algo no cuadra, se puede agregar un perfil para tu banco con un estado de cuenta de muestra.'}
+              </p>
+              {account && profile.kind === 'CREDIT_CARD' && !isCard && (
+                <p className="text-xs text-amber-700">
+                  Este perfil es para tarjetas de crédito y la cuenta elegida no es una tarjeta.
+                </p>
+              )}
+              {isCard && paymentAccountId && (
+                <p className="text-xs text-gray-500">
+                  Los pagos de la tarjeta se registrarán como transferencia desde esa cuenta (no
+                  como ingreso).
+                </p>
+              )}
               <label
                 className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-lg py-10 text-center ${
                   account
@@ -359,6 +478,13 @@ export function ImportPage() {
               <p className="text-sm text-gray-600">
                 <strong>{fileName}</strong> · Revisa que las columnas sean correctas.
               </p>
+              {detectedName && (
+                <p className="text-xs text-brand-700 bg-brand-50 rounded px-3 py-2">
+                  Reconocimos un estado de cuenta de <strong>{detectedName}</strong>: se usa su
+                  perfil verificado.
+                </p>
+              )}
+              <ReconciliationNote result={reconciliation} currency={account?.currency ?? baseCurrency} />
               {header.some(isSolesColumn) && header.some(isDollarColumn) && (
                 <p className="text-xs text-brand-700 bg-brand-50 rounded px-3 py-2">
                   Este estado de cuenta tiene montos en soles y en dólares. Se importa la columna
@@ -541,6 +667,7 @@ export function ImportPage() {
                   <p className="text-xs text-gray-500 mt-1">Se usa para sumar estos movimientos a tus reportes.</p>
                 </div>
               )}
+              <ReconciliationNote result={reconciliation} currency={account.currency} />
               <ReviewStep
                 rows={review}
                 onChange={setReview}
@@ -607,6 +734,30 @@ export function ImportPage() {
         <ImportSidebar categories={categories} onUndone={invalidateData} />
       </div>
     </div>
+  )
+}
+
+/** "✓ Cuadra con el estado de cuenta" o cuánto falta, si el archivo trae saldo inicial y final. */
+function ReconciliationNote({
+  result,
+  currency,
+}: {
+  result: ReturnType<typeof reconcile>
+  currency: string
+}) {
+  if (!result) return null
+  const fmt = (v: number) => formatCurrency(v, currency)
+  return result.ok ? (
+    <p className="text-xs text-brand-700 bg-brand-50 rounded px-3 py-2">
+      ✓ Cuadra con el estado de cuenta: saldo inicial {fmt(result.opening)} → final{' '}
+      {fmt(result.closing)}.
+    </p>
+  ) : (
+    <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+      ⚠ No cuadra por {fmt(Math.abs(result.difference))}: saldo inicial {fmt(result.opening)}, final{' '}
+      {fmt(result.closing)}, y los movimientos leídos suman {fmt(result.change)}. Revisa las columnas o
+      si faltan filas.
+    </p>
   )
 }
 
