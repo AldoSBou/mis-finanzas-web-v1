@@ -21,6 +21,11 @@ export interface ParseOptions {
   dateFormat: DateFormat
   decimal: DecimalStyle
   /**
+   * Fecha de referencia ('YYYY-MM-DD') para fechas sin año ("23-Jul"): normalmente el
+   * cierre del estado de cuenta. Sin ella se usa hoy.
+   */
+  referenceDate?: string
+  /**
    * Con columna única de monto: true si los positivos son ingresos (cuenta bancaria);
    * false si los positivos son consumos (estado de cuenta de tarjeta).
    */
@@ -137,7 +142,7 @@ const KEYWORDS = {
   date: /fecha|date/,
   description: /descrip|concepto|detalle|glosa|movimiento|referencia|comercio|establecimiento/,
   // En estados de cuenta de tarjeta las columnas de monto se llaman por moneda
-  amount: /monto|importe|valor|amount|soles|dolares/,
+  amount: /monto|importe|valor|amount|soles|dolares|^s\/\.?$|^us\$$/,
   debit: /cargo|debito|retiro|egreso|salida/,
   credit: /abono|credito|deposito|ingreso|entrada/,
 }
@@ -246,8 +251,34 @@ function iso(y: number, m: number, d: number): string | null {
   return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 }
 
+/**
+ * Año para una fecha sin año: el de la referencia, salvo que así quede más de una semana
+ * después de ella (p. ej. "20-Dic" en un estado de cuenta que cierra en enero → año anterior).
+ */
+function withYear(month: number, day: number, reference?: string): string | null {
+  const ref = reference ? new Date(`${reference}T00:00:00`) : new Date()
+  let year = ref.getFullYear()
+  const candidate = new Date(year, month - 1, day)
+  if (candidate.getTime() - ref.getTime() > 7 * 86400000) year--
+  return iso(year, month, day)
+}
+
+/** Fecha más reciente escrita completa en el texto (p. ej. el cierre o el último día de pago). */
+export function referenceDateFromText(text: string): string | null {
+  let best: string | null = null
+  for (const m of text.matchAll(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b/g)) {
+    const d = iso(Number(m[3]), Number(m[2]), Number(m[1]))
+    if (d && (!best || d > best)) best = d
+  }
+  for (const m of text.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g)) {
+    const d = iso(Number(m[1]), Number(m[2]), Number(m[3]))
+    if (d && (!best || d > best)) best = d
+  }
+  return best
+}
+
 /** Fecha → 'YYYY-MM-DD', o null si no se puede interpretar con ese formato. */
-export function parseDate(value: Cell, format: DateFormat): string | null {
+export function parseDate(value: Cell, format: DateFormat, reference?: string): string | null {
   if (value === null || value === undefined) return null
   if (value instanceof Date) {
     return Number.isNaN(value.getTime())
@@ -260,6 +291,17 @@ export function parseDate(value: Cell, format: DateFormat): string | null {
   const textual = /^(\d{1,2})[\s\-/.]*([a-z]{3})[a-z]*\.?[\s\-/.]*(\d{2,4})$/.exec(s)
   if (textual && MONTHS[textual[2]]) {
     return iso(Number(textual[3]), MONTHS[textual[2]], Number(textual[1]))
+  }
+
+  // Sin año: "23-Jul", "02 ago", "23/07"
+  const noYearText = /^(\d{1,2})[\s\-/.]+([a-z]{3})[a-z]*\.?$/.exec(s)
+  if (noYearText && MONTHS[noYearText[2]]) {
+    return withYear(MONTHS[noYearText[2]], Number(noYearText[1]), reference)
+  }
+  const noYear = /^(\d{1,2})\/(\d{1,2})$/.exec(s)
+  if (noYear) {
+    const [a, b] = [Number(noYear[1]), Number(noYear[2])]
+    return format === 'MDY' ? withYear(a, b, reference) : withYear(b, a, reference)
   }
 
   const parts = /^(\d{1,4})[\s\-/.](\d{1,2})[\s\-/.](\d{1,4})/.exec(s)
@@ -308,7 +350,7 @@ export function buildRows(
   }
   for (let i = headerIndex + 1; i < rows.length; i++) {
     const r = rows[i]
-    const date = parseDate(r[mapping.date] ?? null, options.dateFormat)
+    const date = parseDate(r[mapping.date] ?? null, options.dateFormat, options.referenceDate)
     let amount: number | null
     if (mapping.amount !== null) {
       const v = parseAmount(r[mapping.amount] ?? null, options.decimal)
@@ -355,23 +397,26 @@ export function reconcile(
   mapping: ColumnMapping,
   options: ParseOptions,
   parsed: ParsedRow[],
-  patterns: { opening: RegExp; closing: RegExp },
+  /** Sin `opening`, el saldo inicial es 0: el total final es la suma de los movimientos del período */
+  patterns: { opening?: RegExp; closing: RegExp },
 ): Reconciliation | null {
   if (mapping.amount === null) return null
   let opening: number | null = null
   let closing: number | null = null
   for (let i = headerIndex + 1; i < rows.length; i++) {
     const r = rows[i]
-    const label = r.find((c): c is string => typeof c === 'string' && (patterns.opening.test(c.trim()) || patterns.closing.test(c.trim())))
+    const isOpening = (c: string) => !!patterns.opening && patterns.opening.test(c.trim())
+    const label = r.find((c): c is string => typeof c === 'string' && (isOpening(c) || patterns.closing.test(c.trim())))
     if (!label) continue
     const value = parseAmount(r[mapping.amount] ?? null, options.decimal)
     if (value === null) continue
-    if (patterns.opening.test(label.trim())) {
+    if (isOpening(label)) {
       if (opening === null) opening = value
     } else {
       closing = value
     }
   }
+  if (!patterns.opening) opening = 0
   if (opening === null || closing === null) return null
   const sum = parsed.reduce((s, r) => s + r.amount, 0)
   const change = options.positiveIsIncome ? sum : -sum

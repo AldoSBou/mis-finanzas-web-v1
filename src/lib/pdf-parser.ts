@@ -33,12 +33,12 @@ interface Column {
 }
 
 const DATE_RE =
-  /^(\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}[\s\-/.]?[a-zA-Z]{3}[\s\-/.]?\d{2,4})$/
+  /^(\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}[\s\-/.]?[a-zA-Z]{3}[\s\-/.]?\d{2,4}|\d{1,2}[\s\-/.][a-zA-Z]{3,4}\.?|\d{1,2}\/\d{1,2})$/
 const AMOUNT_RE = /^[-(]?\s*(S\/|US\$|\$)?\s*-?\d{1,3}([.,\s]\d{3})*([.,]\d{1,2})?\s*\)?-?$/
 
 /** Palabras típicas de encabezado (sin tildes) */
 const HEADER_WORD =
-  /fecha|date|descrip|detalle|concepto|glosa|movimiento|operaci|referencia|comercio|monto|importe|valor|cargo|abono|debito|credito|saldo|soles|dolares|moneda|amount/
+  /fecha|date|descrip|detalle|concepto|glosa|movimiento|operaci|referencia|comercio|monto|importe|valor|cargo|abono|debito|credito|saldo|soles|dolares|moneda|amount|^s\/\.?$|^us\$$/
 
 const plain = (s: string) =>
   s.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')
@@ -84,12 +84,51 @@ export function toLines(items: PdfItem[]): PdfItem[][] {
 const isTransactionLine = (line: PdfItem[]) =>
   line.length >= 2 && isDate(line[0].str) && line.some((i) => isAmount(i.str))
 
-/** Totales del período (se conservan para cuadrar; al no tener fecha no se importan) */
+/**
+ * Totales del período (se conservan para cuadrar; al no tener fecha no se importan).
+ * Incluye los de Interbank: "Debías en el estado de cuenta anterior" y "Pago del mes".
+ */
 const SUMMARY_RE =
-  /^(saldo anterior|saldo inicial|deuda anterior|deuda total|saldo final|saldo actual|nuevo saldo|total a pagar)$/i
+  /^(saldo anterior|saldo inicial|deuda anterior|deuda total|saldo final|saldo actual|nuevo saldo|total a pagar|pago del mes|deb[ií]as en el estado de cuenta anterior)/i
 
 const isSummaryLine = (line: PdfItem[]) =>
   SUMMARY_RE.test(line[0].str.trim()) && line.some((i) => isAmount(i.str))
+
+/**
+ * Fragmentos que son encabezados: al menos la mitad de sus palabras son de encabezado.
+ * Descarta el nombre del titular y frases como "El monto total a pagar está compuesto…".
+ */
+const headerItems = (line: PdfItem[]) =>
+  line.filter((i) => {
+    const ws = i.str.split(/\s+/).filter(Boolean)
+    return ws.filter((w) => HEADER_WORD.test(plain(w))).length * 2 >= ws.length
+  })
+
+/**
+ * Encabezado de la tabla: de las líneas sobre cada bloque de movimientos (hasta 6, a ≤ 60 pt,
+ * sin montos), el bloque con más palabras de encabezado. Así funciona aunque el primer bloque
+ * (p. ej. los pagos) no tenga los títulos de columna y otro (los consumos) sí.
+ */
+function findHeaderLines(pageLines: PdfItem[][][]): PdfItem[][] {
+  let best: PdfItem[][] = []
+  let bestScore = 0
+  for (const lines of pageLines) {
+    lines.forEach((line, idx) => {
+      if (!isTransactionLine(line) || (idx > 0 && isTransactionLine(lines[idx - 1]))) return
+      const candidate = lines
+        .slice(Math.max(0, idx - 6), idx)
+        .filter((l) => l[0].y - line[0].y <= 60 && !l.some((i) => isAmount(i.str)))
+        .map(headerItems)
+        .filter((l) => l.length > 0)
+      const score = candidate.reduce((s, l) => s + l.length, 0)
+      if (score > bestScore) {
+        bestScore = score
+        best = candidate
+      }
+    })
+  }
+  return best
+}
 
 /** Agrupa posiciones cercanas (±8 pt) en columnas. */
 function clusterColumns(lines: PdfItem[][]): Column[] {
@@ -188,21 +227,7 @@ export function pdfToTable(pages: PdfItem[][]): Cell[][] {
     ? textCols.reduce((a, b) => (b.c.to - b.c.from > a.c.to - a.c.from ? b : a)).i
     : -1
 
-  // Encabezado: líneas con palabras de encabezado, hasta 6 líneas (≤ 60 pt) sobre la primera
-  // fila de datos. Así se ignoran títulos de sección como "CONSUMO DEL TITULAR".
-  const firstPage = pageLines.find((ls) => ls.some(isTransactionLine))!
-  const firstTx = firstPage.findIndex(isTransactionLine)
-  const firstY = firstPage[firstTx][0].y
-  const headerLines = firstPage
-    .slice(Math.max(0, firstTx - 6), firstTx)
-    .filter(
-      (l) =>
-        l[0].y - firstY <= 60 &&
-        !l.some((i) => isAmount(i.str)) &&
-        l.some((i) => HEADER_WORD.test(plain(i.str))),
-    )
-
-  const rows: Cell[][] = [headerNames(headerLines, columns)]
+  const rows: Cell[][] = [headerNames(findHeaderLines(pageLines), columns)]
   for (const lines of pageLines) {
     let last: Cell[] | null = null
     for (const line of lines) {

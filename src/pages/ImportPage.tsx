@@ -18,6 +18,7 @@ import {
   guessMapping,
   readFile,
   reconcile,
+  referenceDateFromText,
   type Cell,
   type ColumnMapping,
   type DateFormat,
@@ -117,6 +118,8 @@ export function ImportPage() {
   const [dateFormat, setDateFormat] = useState<DateFormat>('DMY')
   const [decimal, setDecimal] = useState<DecimalStyle>('dot')
   const [positiveIsIncome, setPositiveIsIncome] = useState(true)
+  // Para fechas sin año ("23-Jul"): la fecha más reciente escrita completa en el archivo
+  const [referenceDate, setReferenceDate] = useState<string | undefined>(undefined)
   const [review, setReview] = useState<ReviewRow[]>([])
   const [exchangeRate, setExchangeRate] = useState('')
   const [result, setResult] = useState<ImportBatch | null>(null)
@@ -155,17 +158,21 @@ export function ImportPage() {
   const header = cells[headerIndex] ?? []
   const columnCount = Math.max(0, ...cells.slice(headerIndex, headerIndex + 30).map((r) => r.length))
   const parsed = useMemo(
-    () => buildRows(cells, headerIndex, mapping, { dateFormat, decimal, positiveIsIncome }),
-    [cells, headerIndex, mapping, dateFormat, decimal, positiveIsIncome],
+    () => buildRows(cells, headerIndex, mapping, { dateFormat, decimal, positiveIsIncome, referenceDate }),
+    [cells, headerIndex, mapping, dateFormat, decimal, positiveIsIncome, referenceDate],
   )
   // Cuadre con el saldo inicial y final del archivo (si los trae)
   const reconciliation = useMemo(
     () =>
-      reconcile(cells, headerIndex, mapping, { dateFormat, decimal, positiveIsIncome }, parsed.rows, {
-        opening: profile.openingPattern,
-        closing: profile.closingPattern,
-      }),
-    [cells, headerIndex, mapping, dateFormat, decimal, positiveIsIncome, parsed.rows, profile],
+      reconcile(
+        cells,
+        headerIndex,
+        mapping,
+        { dateFormat, decimal, positiveIsIncome, referenceDate },
+        parsed.rows,
+        { opening: profile.openingPattern, closing: profile.closingPattern },
+      ),
+    [cells, headerIndex, mapping, dateFormat, decimal, positiveIsIncome, referenceDate, parsed.rows, profile],
   )
 
   const invalidateData = () => {
@@ -189,11 +196,12 @@ export function ImportPage() {
       const { rows, text } = await readFile(file, password)
       setLockedPdf(null)
       setPdfPassword('')
-      // Si el archivo es de un banco con perfil verificado, se usa ese perfil
+      // Si el archivo es de un banco con perfil verificado, se usa ese perfil aunque se haya
+      // elegido (o recordado) otro: el archivo manda
       let active = profileById(profileId)
       const detected = detectProfile(text)
       setDetectedName(null)
-      if (detected && profileId === 'auto') {
+      if (detected && detected.id !== profileId) {
         active = detected
         setProfileId(detected.id)
         setDetectedName(detected.name)
@@ -207,6 +215,7 @@ export function ImportPage() {
       const moneyCol = guess.amount ?? guess.debit
 
       setFileName(file.name)
+      setReferenceDate(referenceDateFromText(text) ?? undefined)
       setCells(rows)
       setHeaderIndex(h)
       if (saved && saved.header === headerSig) {

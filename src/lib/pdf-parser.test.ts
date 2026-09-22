@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { applyProfile, detectProfile, profileById } from './bank-profiles'
-import { buildRows, detectHeaderRow, guessMapping, reconcile } from './import-parser'
+import { buildRows, detectHeaderRow, guessMapping, reconcile, referenceDateFromText } from './import-parser'
 import { pdfToTable, toLines, type PdfItem } from './pdf-parser'
 
 /**
@@ -148,5 +148,69 @@ describe('perfiles de banco', () => {
   it('reconoce los pagos de la tarjeta', () => {
     expect(profileById('scotiabank-tc').paymentPattern.test('GRACIAS POR SU PAGO LIMA PER')).toBe(true)
     expect(profileById('auto').paymentPattern.test('PAGO RECIBIDO - GRACIAS')).toBe(true)
+  })
+})
+
+/**
+ * Estado de cuenta inventado con el formato de Interbank: fechas sin año ("23-Jul"), columnas
+ * "S/" y "US$" con 0.00 en la otra moneda, pagos con "-" adelante, el encabezado sobre los
+ * consumos (no sobre los pagos) y una frase larga con "monto" que no es encabezado.
+ */
+const S = 498
+const USD = 543
+const interbank: PdfItem[][] = [
+  [
+    item(146, 689, 'de tu Tarjeta de Crédito del 21/07/2026 al cierre de 21/08/2026'),
+    item(95, 473, '15/09/2026'),
+    item(41, 402, 'Si tienes algún reclamo, comunícate o visita www.interbank.pe'),
+  ],
+  [
+    item(50, 723, 'El monto total a pagar está compuesto por la suma de todos los subtotales.'),
+    item(51, 703, 'TU ESTADO DE CUENTA ANTERIOR'), item(488, 703, 'S/'), item(526, 703, 'US$'),
+    item(92, 693, 'Debías en el estado de cuenta anterior *'), amount(S, 693, '300.00'), amount(USD, 693, '0.00'),
+    item(51, 672, 'PAGOS REALIZADOS'),
+    item(51, 662, '23-Jul'), item(92, 662, 'PAGO TARJ WEB APP'), amount(S, 662, '-300.00'), amount(USD, 662, '0.00'),
+    item(51, 594, 'SUBTOTAL'), amount(S, 594, '0.00'), amount(USD, 594, '0.00'),
+    item(51, 577, 'TUS CONSUMOS'),
+    item(51, 564, 'JUAN PEREZ'), item(488, 564, 'S/'), item(526, 564, 'US$'),
+    item(51, 554, 'Fecha'), item(92, 554, 'Comercio'),
+    item(51, 543, '19-Jul'), item(92, 543, 'SUPERMERCADO EJEMPLO'), amount(S, 543, '250.00'), amount(USD, 543, '0.00'),
+    item(51, 532, '04-Ago'), item(92, 532, 'SUSCRIPCION EJEMPLO'), amount(S, 532, '0.00'), amount(USD, 532, '20.00'),
+    item(51, 522, '10-Ago'), item(92, 522, 'RESTAURANTE EJEMPLO'), amount(S, 522, '1,050.50'), amount(USD, 522, '0.00'),
+    item(51, 483, 'PAGO DEL MES (Suma de subtotales)'), item(234, 483, '------'), item(448, 483, '='),
+    amount(S, 483, '1,300.50'), amount(USD, 483, '20.00'),
+  ],
+]
+
+describe('formato Interbank', () => {
+  const table = pdfToTable(interbank)
+  const text = interbank.flat().map((i) => i.str).join(' ')
+  const profile = detectProfile(text)!
+  const referenceDate = referenceDateFromText(text)!
+
+  it('reconoce el banco y toma el encabezado de los consumos, sin la frase ni el titular', () => {
+    expect(profile.id).toBe('interbank-tc')
+    expect(table[0]).toEqual(['Fecha', 'Comercio', 'S/', 'US$'])
+  })
+
+  it('completa el año, ignora el 0.00 de la otra moneda y cuadra con la deuda anterior', () => {
+    const options = { dateFormat: 'DMY' as const, decimal: 'dot' as const, positiveIsIncome: false, referenceDate }
+    const patterns = { opening: profile.openingPattern, closing: profile.closingPattern }
+
+    const pen = applyProfile(profile, table[0], 'PEN', guessMapping(table[0]))
+    const soles = buildRows(table, 0, pen, options)
+    expect(soles.rows.map((r) => [r.date, r.amount])).toEqual([
+      ['2026-07-23', 300],
+      ['2026-07-19', -250],
+      ['2026-08-10', -1050.5],
+    ])
+    expect(profile.paymentPattern.test(soles.rows[0].description)).toBe(true)
+    // 300.00 (deuda anterior) − 300 (pago) + 250 + 1,050.50 = 1,300.50
+    expect(reconcile(table, 0, pen, options, soles.rows, patterns)).toMatchObject({ ok: true, opening: 300, closing: 1300.5 })
+
+    const usd = applyProfile(profile, table[0], 'USD', guessMapping(table[0]))
+    const dolares = buildRows(table, 0, usd, options)
+    expect(dolares.rows.map((r) => [r.date, r.amount])).toEqual([['2026-08-04', -20]])
+    expect(reconcile(table, 0, usd, options, dolares.rows, patterns)).toMatchObject({ ok: true })
   })
 })

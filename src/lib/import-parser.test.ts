@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildRows,
   columnLetter,
+  referenceDateFromText,
   decodeText,
   detectDateFormat,
   detectDecimalStyle,
@@ -40,6 +41,22 @@ describe('parseDate', () => {
     expect(parseDate('22-Sep-2026', 'DMY')).toBe('2026-09-22')
     expect(parseDate('22SEP2026', 'DMY')).toBe('2026-09-22')
     expect(parseDate(new Date(2026, 8, 22), 'DMY')).toBe('2026-09-22')
+  })
+
+  it('completa el año de fechas sin año con la fecha de referencia', () => {
+    expect(parseDate('23-Jul', 'DMY', '2026-09-15')).toBe('2026-07-23')
+    expect(parseDate('02-Ago', 'DMY', '2026-09-15')).toBe('2026-08-02')
+    expect(parseDate('23/07', 'DMY', '2026-09-15')).toBe('2026-07-23')
+    // Estado de cuenta que cierra en enero: diciembre es del año anterior
+    expect(parseDate('20-Dic', 'DMY', '2027-01-21')).toBe('2026-12-20')
+  })
+
+  it('toma como referencia la fecha completa más reciente del texto', () => {
+    expect(referenceDateFromText('del 21/07/2026 al cierre de 21/08/2026. Último día de pago 15/09/2026')).toBe(
+      '2026-09-15',
+    )
+    expect(referenceDateFromText('Fecha de corte 04-09-2026')).toBe('2026-09-04')
+    expect(referenceDateFromText('sin fechas')).toBeNull()
   })
 
   it('rechaza fechas imposibles', () => {

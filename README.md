@@ -117,7 +117,7 @@ O en producción, configura el deployment para que sirva ambos en el mismo domin
 - [x] Presupuesto por categoría con alertas.
 - [x] Reportes con gráficos (Recharts) y vista de tabla.
 - [x] Búsqueda, filtros y exportación CSV.
-- [x] Importar estados de cuenta (PDF, CSV, Excel) con reglas de categorización y deshacer. PDF probado con el estado de cuenta de tarjeta Scotiabank (cuadra al centavo); PDFs con contraseña se abren en el navegador.
+- [x] Importar estados de cuenta (PDF, CSV, Excel) con reglas de categorización y deshacer. PDF con perfiles verificados para tarjetas Scotiabank e Interbank (cuadran al centavo con el banco); PDFs con contraseña se abren en el navegador.
 - [ ] Metas de ahorro.
 - [ ] Tarjetas de crédito con cuotas.
 - [ ] Registro sin conexión.

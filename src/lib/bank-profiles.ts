@@ -23,8 +23,11 @@ export interface BankProfile {
   positiveIsIncome?: boolean
   /** Filas que son pagos de la tarjeta: se sugieren como transferencia desde la cuenta de pago */
   paymentPattern: RegExp
-  /** Filas con el saldo inicial y final del período, para cuadrar */
-  openingPattern: RegExp
+  /**
+   * Filas con el saldo inicial y final del período, para cuadrar. Sin `openingPattern`, el
+   * total final es la suma de los movimientos del período (bancos que no muestran saldo anterior).
+   */
+  openingPattern?: RegExp
   closingPattern: RegExp
   /** Dónde conseguir el archivo */
   hint: string
@@ -58,6 +61,23 @@ export const BANK_PROFILES: BankProfile[] = [
     hint:
       'El PDF del estado de cuenta mensual que llega por correo (la contraseña suele ser tu DNI). ' +
       'Es bimoneda: impórtalo una vez en tu tarjeta en soles y otra en la de dólares.',
+  },
+  {
+    id: 'interbank-tc',
+    name: 'Interbank – Tarjeta de crédito',
+    kind: 'CREDIT_CARD',
+    verified: true,
+    detect: /interbank/i,
+    dateHeader: /^fecha$/i,
+    amountHeader: { PEN: /^s\/\.?$/i, USD: /^us\$$/i },
+    positiveIsIncome: false,
+    paymentPattern: /pago tarj|pago de tarjeta|pago recibido/i,
+    // Deuda anterior + pagos, consumos y cobros del período = "Pago del mes (Suma de subtotales)"
+    openingPattern: /^deb[ií]as en el estado de cuenta anterior/i,
+    closingPattern: /^pago del mes\b/i,
+    hint:
+      'El PDF del estado de cuenta mensual (contraseña habitual: tu DNI). Las fechas vienen sin ' +
+      'año y se completan con el período. Es bimoneda: impórtalo una vez por moneda.',
   },
 ]
 
