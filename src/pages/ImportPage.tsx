@@ -1,0 +1,597 @@
+import { useMemo, useState, type ChangeEvent } from 'react'
+import { Link } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { CheckCircle2, FileSpreadsheet } from 'lucide-react'
+import { accountsApi, categoriesApi, importsApi, transactionsApi } from '@/api/services'
+import { ErrorState, Loading } from '@/components/ui/States'
+import { useAuth } from '@/features/auth/AuthProvider'
+import { ImportSidebar } from '@/features/import/ImportSidebar'
+import { ReviewStep, type ReviewRow } from '@/features/import/ReviewStep'
+import { getErrorMessage } from '@/lib/api-client'
+import { currencySymbol, formatCurrency, shortDate } from '@/lib/format'
+import {
+  buildRows,
+  columnLabel,
+  detectDateFormat,
+  detectDecimalStyle,
+  detectHeaderRow,
+  guessMapping,
+  readFile,
+  type Cell,
+  type ColumnMapping,
+  type DateFormat,
+  type DecimalStyle,
+} from '@/lib/import-parser'
+import { queryKeys } from '@/lib/query-keys'
+import type { ImportBatch } from '@/types/api'
+
+type Step = 'file' | 'map' | 'review' | 'done'
+
+interface SavedSetup {
+  header: string
+  mapping: ColumnMapping
+  dateFormat: DateFormat
+  decimal: DecimalStyle
+  positiveIsIncome: boolean
+}
+
+const MAX_ROWS = 1000
+const setupKey = (accountId: string) => `mis-finanzas:import-setup:${accountId}`
+
+function loadSetup(accountId: string): SavedSetup | null {
+  try {
+    const raw = localStorage.getItem(setupKey(accountId))
+    return raw ? (JSON.parse(raw) as SavedSetup) : null
+  } catch {
+    return null
+  }
+}
+
+function saveSetup(accountId: string, setup: SavedSetup) {
+  try {
+    localStorage.setItem(setupKey(accountId), JSON.stringify(setup))
+  } catch {
+    // Sin storage: la próxima vez se vuelve a detectar
+  }
+}
+
+export function ImportPage() {
+  const queryClient = useQueryClient()
+  const { user } = useAuth()
+  const baseCurrency = user?.currencyDefault ?? 'PEN'
+
+  const [step, setStep] = useState<Step>('file')
+  const [accountId, setAccountId] = useState('')
+  const [fileName, setFileName] = useState('')
+  const [cells, setCells] = useState<Cell[][]>([])
+  const [headerIndex, setHeaderIndex] = useState(0)
+  const [mapping, setMapping] = useState<ColumnMapping>({
+    date: null,
+    description: null,
+    amount: null,
+    debit: null,
+    credit: null,
+  })
+  const [dateFormat, setDateFormat] = useState<DateFormat>('DMY')
+  const [decimal, setDecimal] = useState<DecimalStyle>('dot')
+  const [positiveIsIncome, setPositiveIsIncome] = useState(true)
+  const [review, setReview] = useState<ReviewRow[]>([])
+  const [exchangeRate, setExchangeRate] = useState('')
+  const [result, setResult] = useState<ImportBatch | null>(null)
+  const [readError, setReadError] = useState<string | null>(null)
+
+  const { data: accounts = [] } = useQuery({
+    queryKey: queryKeys.accounts.list(false),
+    queryFn: () => accountsApi.list(false),
+  })
+  const { data: categories = [] } = useQuery({
+    queryKey: queryKeys.categories.list(false),
+    queryFn: () => categoriesApi.list(false),
+  })
+  const account = accounts.find((a) => String(a.id) === accountId)
+  const needsRate = !!account && account.currency !== baseCurrency
+
+  const header = cells[headerIndex] ?? []
+  const columnCount = Math.max(0, ...cells.slice(headerIndex, headerIndex + 30).map((r) => r.length))
+  const parsed = useMemo(
+    () => buildRows(cells, headerIndex, mapping, { dateFormat, decimal, positiveIsIncome }),
+    [cells, headerIndex, mapping, dateFormat, decimal, positiveIsIncome],
+  )
+
+  const invalidateData = () => {
+    for (const key of [['transactions'], ['accounts'], ['dashboard'], ['reports'], ['category-budgets']]) {
+      queryClient.invalidateQueries({ queryKey: key })
+    }
+  }
+
+  // ---------- Paso 1: archivo ----------
+  const onFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !account) return
+    setReadError(null)
+    try {
+      const rows = await readFile(file)
+      if (rows.length === 0) throw new Error('El archivo está vacío')
+      const h = detectHeaderRow(rows)
+      const headerSig = JSON.stringify(rows[h])
+      const saved = loadSetup(accountId)
+      const guess = guessMapping(rows[h])
+      const colValues = (col: number | null) => (col === null ? [] : rows.slice(h + 1).map((r) => r[col] ?? null))
+      const moneyCol = guess.amount ?? guess.debit
+
+      setFileName(file.name)
+      setCells(rows)
+      setHeaderIndex(h)
+      if (saved && saved.header === headerSig) {
+        // Mismo formato que la última vez con esta cuenta
+        setMapping(saved.mapping)
+        setDateFormat(saved.dateFormat)
+        setDecimal(saved.decimal)
+        setPositiveIsIncome(saved.positiveIsIncome)
+      } else {
+        setMapping(guess)
+        setDateFormat(detectDateFormat(colValues(guess.date)))
+        setDecimal(detectDecimalStyle([...colValues(moneyCol), ...colValues(guess.credit)]))
+        setPositiveIsIncome(account.type !== 'CREDIT_CARD')
+      }
+      setStep('map')
+    } catch (err) {
+      setReadError(
+        `No se pudo leer el archivo${err instanceof Error ? `: ${err.message}` : ''}. Usa CSV o Excel (.xlsx, .xls).`,
+      )
+    }
+  }
+
+  // ---------- Paso 2 → 3: vista previa en el servidor ----------
+  const previewMutation = useMutation({
+    mutationFn: async () => {
+      const rows = parsed.rows.slice(0, MAX_ROWS)
+      const suggestions = await importsApi.preview(
+        Number(accountId),
+        rows.map(({ date, description, amount }) => ({ date, description, amount })),
+      )
+      if (needsRate && !exchangeRate) {
+        const latest = await transactionsApi.latestExchangeRate(account!.currency)
+        if (latest) setExchangeRate(String(parseFloat(latest.rate)))
+      }
+      return rows.map<ReviewRow>((r, i) => {
+        const s = suggestions[i]
+        return {
+          ...r,
+          include: !s.duplicate,
+          choice: s.suggestedCategoryId ? `c:${s.suggestedCategoryId}` : '',
+          source: s.source,
+          duplicate: s.duplicate,
+        }
+      })
+    },
+    onSuccess: (rows) => {
+      saveSetup(accountId, {
+        header: JSON.stringify(header),
+        mapping,
+        dateFormat,
+        decimal,
+        positiveIsIncome,
+      })
+      setReview(rows)
+      setStep('review')
+    },
+  })
+
+  // ---------- Paso 3: importar ----------
+  const commitMutation = useMutation({
+    mutationFn: () =>
+      importsApi.commit({
+        accountId: Number(accountId),
+        fileName,
+        exchangeRate: needsRate ? exchangeRate : undefined,
+        rows: review
+          .filter((r) => r.include)
+          .map((r) => {
+            const [kind, id] = r.choice.split(':')
+            return {
+              date: r.date,
+              description: r.description,
+              amount: r.amount,
+              categoryId: kind === 'c' ? Number(id) : undefined,
+              transferAccountId: kind === 't' ? Number(id) : undefined,
+            }
+          }),
+      }),
+    onSuccess: (batch) => {
+      setResult(batch)
+      setStep('done')
+      invalidateData()
+      queryClient.invalidateQueries({ queryKey: queryKeys.imports.recent })
+    },
+  })
+
+  const undoMutation = useMutation({
+    mutationFn: (id: number) => importsApi.undo(id),
+    onSuccess: () => {
+      invalidateData()
+      queryClient.invalidateQueries({ queryKey: queryKeys.imports.recent })
+      reset()
+    },
+  })
+
+  const reset = () => {
+    setStep('file')
+    setCells([])
+    setReview([])
+    setResult(null)
+    commitMutation.reset()
+    previewMutation.reset()
+  }
+
+  const included = review.filter((r) => r.include)
+  const missing = included.filter((r) => !r.choice).length
+  const hasAmountColumns = mapping.amount !== null || (mapping.debit !== null && mapping.credit !== null)
+
+  return (
+    <div className="p-4 md:p-6 max-w-6xl mx-auto">
+      <header className="mb-6">
+        <h1 className="text-2xl font-semibold">Importar estado de cuenta</h1>
+        <p className="text-sm text-gray-500">
+          CSV o Excel de tu banco. El archivo se lee en tu navegador; solo se guardan los
+          movimientos que confirmes.
+        </p>
+      </header>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 space-y-4">
+          <Steps current={step} />
+
+          {step === 'file' && (
+            <section className="card space-y-4">
+              <div>
+                <label className="label">Cuenta del estado de cuenta</label>
+                <select
+                  value={accountId}
+                  onChange={(e) => setAccountId(e.target.value)}
+                  className="input"
+                >
+                  <option value="">Selecciona...</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} · {a.currency}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <label
+                className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-lg py-10 text-center ${
+                  account
+                    ? 'border-gray-300 hover:border-brand-500 cursor-pointer'
+                    : 'border-gray-200 text-gray-400 cursor-not-allowed'
+                }`}
+              >
+                <FileSpreadsheet className="w-8 h-8 text-gray-400" />
+                <span className="text-sm font-medium">
+                  {account ? 'Elegir archivo (.csv, .xlsx, .xls)' : 'Primero elige la cuenta'}
+                </span>
+                <span className="text-xs text-gray-500">
+                  Descárgalo desde la banca por internet, en "Movimientos" o "Estado de cuenta"
+                </span>
+                <input
+                  type="file"
+                  accept=".csv,.txt,.xlsx,.xls"
+                  onChange={onFile}
+                  disabled={!account}
+                  className="sr-only"
+                />
+              </label>
+              {readError && <ErrorState message={readError} />}
+            </section>
+          )}
+
+          {step === 'map' && (
+            <section className="card space-y-4">
+              <p className="text-sm text-gray-600">
+                <strong>{fileName}</strong> · Revisa que las columnas sean correctas.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Fila de encabezados</label>
+                  <select
+                    value={headerIndex}
+                    onChange={(e) => {
+                      const h = Number(e.target.value)
+                      setHeaderIndex(h)
+                      setMapping(guessMapping(cells[h] ?? []))
+                    }}
+                    className="input"
+                  >
+                    {cells.slice(0, 20).map((r, i) => (
+                      <option key={i} value={i}>
+                        Fila {i + 1}: {r.filter((c) => c !== null).slice(0, 3).map(String).join(' · ').slice(0, 60)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <ColumnSelect
+                  label="Fecha"
+                  value={mapping.date}
+                  header={header}
+                  count={columnCount}
+                  onChange={(v) => setMapping({ ...mapping, date: v })}
+                />
+                <ColumnSelect
+                  label="Descripción"
+                  value={mapping.description}
+                  header={header}
+                  count={columnCount}
+                  onChange={(v) => setMapping({ ...mapping, description: v })}
+                  optional
+                />
+                <div>
+                  <label className="label">Montos</label>
+                  <select
+                    value={mapping.amount !== null ? 'single' : 'pair'}
+                    onChange={(e) =>
+                      setMapping(
+                        e.target.value === 'single'
+                          ? { ...mapping, amount: mapping.debit ?? 0, debit: null, credit: null }
+                          : { ...mapping, amount: null, debit: mapping.amount ?? 0, credit: null },
+                      )
+                    }
+                    className="input"
+                  >
+                    <option value="single">Una columna con signo</option>
+                    <option value="pair">Dos columnas: cargo y abono</option>
+                  </select>
+                </div>
+                {mapping.amount !== null ? (
+                  <>
+                    <ColumnSelect
+                      label="Monto"
+                      value={mapping.amount}
+                      header={header}
+                      count={columnCount}
+                      onChange={(v) => setMapping({ ...mapping, amount: v })}
+                    />
+                    <div>
+                      <label className="label">Montos positivos son</label>
+                      <select
+                        value={positiveIsIncome ? 'in' : 'out'}
+                        onChange={(e) => setPositiveIsIncome(e.target.value === 'in')}
+                        className="input"
+                      >
+                        <option value="in">Entradas (cuenta bancaria)</option>
+                        <option value="out">Consumos (tarjeta de crédito)</option>
+                      </select>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <ColumnSelect
+                      label="Cargo (sale dinero)"
+                      value={mapping.debit}
+                      header={header}
+                      count={columnCount}
+                      onChange={(v) => setMapping({ ...mapping, debit: v })}
+                    />
+                    <ColumnSelect
+                      label="Abono (entra dinero)"
+                      value={mapping.credit}
+                      header={header}
+                      count={columnCount}
+                      onChange={(v) => setMapping({ ...mapping, credit: v })}
+                    />
+                  </>
+                )}
+                <div>
+                  <label className="label">Formato de fecha</label>
+                  <select
+                    value={dateFormat}
+                    onChange={(e) => setDateFormat(e.target.value as DateFormat)}
+                    className="input"
+                  >
+                    <option value="DMY">Día/mes/año (22/09/2026)</option>
+                    <option value="YMD">Año-mes-día (2026-09-22)</option>
+                    <option value="MDY">Mes/día/año (09/22/2026)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Decimales</label>
+                  <select
+                    value={decimal}
+                    onChange={(e) => setDecimal(e.target.value as DecimalStyle)}
+                    className="input"
+                  >
+                    <option value="dot">Punto (1,234.56)</option>
+                    <option value="comma">Coma (1.234,56)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs text-gray-500 mb-2">
+                  {parsed.rows.length} movimientos reconocidos
+                  {parsed.skipped > 0 && ` · ${parsed.skipped} filas omitidas (sin fecha o monto, como saldos)`}
+                  {parsed.rows.length > MAX_ROWS && ` · se importarán los primeros ${MAX_ROWS}`}
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <tbody>
+                      {parsed.rows.slice(0, 5).map((r) => (
+                        <tr key={r.line} className="border-b border-gray-100">
+                          <td className="py-1.5 pr-3 text-gray-500 whitespace-nowrap">{shortDate(r.date)}</td>
+                          <td className="py-1.5 pr-3 truncate max-w-[300px]">{r.description || '—'}</td>
+                          <td
+                            className={`py-1.5 text-right tabular-nums ${r.amount > 0 ? 'text-brand-700' : ''}`}
+                          >
+                            {formatCurrency(r.amount, account?.currency ?? baseCurrency)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {previewMutation.error && <ErrorState message={getErrorMessage(previewMutation.error)} />}
+              <div className="flex justify-between gap-2">
+                <button type="button" onClick={reset} className="btn-secondary">
+                  Cambiar archivo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => previewMutation.mutate()}
+                  disabled={!hasAmountColumns || mapping.date === null || parsed.rows.length === 0 || previewMutation.isPending}
+                  className="btn-primary"
+                >
+                  {previewMutation.isPending ? 'Analizando...' : 'Continuar'}
+                </button>
+              </div>
+            </section>
+          )}
+
+          {step === 'review' && account && (
+            <>
+              {needsRate && (
+                <div className="card">
+                  <label className="label">
+                    Tipo de cambio (1 {currencySymbol(account.currency)} = ? {currencySymbol(baseCurrency)})
+                  </label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    min="0.0001"
+                    value={exchangeRate}
+                    onChange={(e) => setExchangeRate(e.target.value)}
+                    className="input w-40"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Se usa para sumar estos movimientos a tus reportes.</p>
+                </div>
+              )}
+              <ReviewStep
+                rows={review}
+                onChange={setReview}
+                account={account}
+                accounts={accounts}
+                categories={categories}
+              />
+              {commitMutation.error && <ErrorState message={getErrorMessage(commitMutation.error)} />}
+              <div className="flex flex-wrap justify-between items-center gap-2">
+                <button type="button" onClick={() => setStep('map')} className="btn-secondary">
+                  Volver a columnas
+                </button>
+                <div className="flex items-center gap-3">
+                  {missing > 0 && <span className="text-sm text-amber-700">{missing} sin categoría</span>}
+                  <button
+                    type="button"
+                    onClick={() => commitMutation.mutate()}
+                    disabled={
+                      included.length === 0 ||
+                      missing > 0 ||
+                      (needsRate && !exchangeRate) ||
+                      commitMutation.isPending
+                    }
+                    className="btn-primary"
+                  >
+                    {commitMutation.isPending
+                      ? 'Importando...'
+                      : `Importar ${included.length} ${included.length === 1 ? 'movimiento' : 'movimientos'}`}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+
+          {step === 'done' && result && (
+            <section className="card text-center py-8 space-y-3">
+              <CheckCircle2 className="w-10 h-10 text-brand-500 mx-auto" />
+              <p className="text-lg font-semibold">
+                Se importaron {result.rowCount} movimientos en {result.accountName}
+              </p>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Link to={`/movimientos?cuenta=${result.accountId}`} className="btn-primary">
+                  Ver movimientos
+                </Link>
+                <button type="button" onClick={reset} className="btn-secondary">
+                  Importar otro archivo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => undoMutation.mutate(result.id)}
+                  disabled={undoMutation.isPending}
+                  className="btn-secondary text-red-600"
+                >
+                  Deshacer
+                </button>
+              </div>
+              {undoMutation.error && <ErrorState message={getErrorMessage(undoMutation.error)} />}
+            </section>
+          )}
+
+          {step === 'file' && accounts.length === 0 && <Loading />}
+        </div>
+
+        <ImportSidebar categories={categories} onUndone={invalidateData} />
+      </div>
+    </div>
+  )
+}
+
+function Steps({ current }: { current: Step }) {
+  const steps: Array<[Step, string]> = [
+    ['file', 'Archivo'],
+    ['map', 'Columnas'],
+    ['review', 'Revisar'],
+  ]
+  const order: Step[] = ['file', 'map', 'review', 'done']
+  const at = order.indexOf(current)
+  return (
+    <ol className="flex items-center gap-2 text-sm">
+      {steps.map(([key, label], i) => (
+        <li key={key} className="flex items-center gap-2">
+          <span
+            className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold ${
+              i <= at ? 'bg-brand-500 text-white' : 'bg-gray-200 text-gray-600'
+            }`}
+          >
+            {i + 1}
+          </span>
+          <span className={i === at ? 'font-medium' : 'text-gray-500'}>{label}</span>
+          {i < steps.length - 1 && <span className="text-gray-300">—</span>}
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+function ColumnSelect({
+  label,
+  value,
+  header,
+  count,
+  onChange,
+  optional,
+}: {
+  label: string
+  value: number | null
+  header: Cell[]
+  count: number
+  onChange: (v: number | null) => void
+  optional?: boolean
+}) {
+  return (
+    <div>
+      <label className="label">{label}</label>
+      <select
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
+        className={`input ${value === null && !optional ? 'border-amber-400' : ''}`}
+      >
+        <option value="">{optional ? 'Ninguna' : 'Elegir columna...'}</option>
+        {Array.from({ length: count }, (_, i) => (
+          <option key={i} value={i}>
+            {columnLabel(header, i)}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}

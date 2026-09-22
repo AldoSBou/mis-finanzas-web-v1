@@ -14,6 +14,8 @@ Frontend de la app de control de finanzas personales. **React 18 + TypeScript + 
 - **vite-plugin-pwa** para instalable + offline básico
 - **Recharts** preinstalado para gráficos futuros
 - **Lucide React** para iconos
+- **SheetJS** (desde su CDN oficial; la versión de npm está abandonada) para leer Excel, cargado solo al importar
+- **Vitest** para los tests del lector de estados de cuenta (`npm test`)
 
 ## Estructura
 
@@ -114,7 +116,7 @@ O en producción, configura el deployment para que sirva ambos en el mismo domin
 - [x] Presupuesto por categoría con alertas.
 - [x] Reportes con gráficos (Recharts) y vista de tabla.
 - [x] Búsqueda, filtros y exportación CSV.
-- [ ] Importar estados de cuenta (CSV/Excel) con reglas de categorización.
+- [x] Importar estados de cuenta (CSV/Excel) con reglas de categorización y deshacer.
 - [ ] Metas de ahorro.
 - [ ] Tarjetas de crédito con cuotas.
 - [ ] Registro sin conexión.

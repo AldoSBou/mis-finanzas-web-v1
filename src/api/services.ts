@@ -5,10 +5,15 @@ import type {
   AllocationRule,
   AllocationRuleRequest,
   Category,
+  CategorizationRule,
   CategoryBudgetSummary,
   CategoryRequest,
   DashboardResponse,
   ExchangeRate,
+  ImportBatch,
+  ImportCommitRequest,
+  ImportPreviewRow,
+  ImportRowInput,
   MonthlyBudget,
   MonthlyBudgetRequest,
   Recurring,
@@ -141,6 +146,25 @@ export const budgetsApi = {
   },
   upsert: (req: MonthlyBudgetRequest) =>
     api.post<MonthlyBudget>('/budgets', req).then((r) => r.data),
+}
+
+export const importsApi = {
+  preview: (accountId: number, rows: ImportRowInput[]) =>
+    api
+      .post<{ rows: ImportPreviewRow[] }>('/imports/preview', { accountId, rows })
+      .then((r) => r.data.rows),
+  commit: (req: ImportCommitRequest) => api.post<ImportBatch>('/imports', req).then((r) => r.data),
+  recent: () => api.get<ImportBatch[]>('/imports').then((r) => r.data),
+  undo: (id: number) => api.delete<void>(`/imports/${id}`).then((r) => r.data),
+}
+
+export const categorizationRulesApi = {
+  list: () => api.get<CategorizationRule[]>('/categorization-rules').then((r) => r.data),
+  create: (pattern: string, categoryId: number) =>
+    api
+      .post<CategorizationRule>('/categorization-rules', { pattern, categoryId })
+      .then((r) => r.data),
+  remove: (id: number) => api.delete<void>(`/categorization-rules/${id}`).then((r) => r.data),
 }
 
 export const reportsApi = {

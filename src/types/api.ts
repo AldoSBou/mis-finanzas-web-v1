@@ -331,6 +331,53 @@ export interface ReportResponse {
   netWorthApproximate: boolean
 }
 
+// ===== Import =====
+export type SuggestionSource = 'RULE' | 'HISTORY' | 'NONE'
+
+export interface ImportRowInput {
+  date: string
+  description: string
+  /** Negativo = sale dinero de la cuenta */
+  amount: number
+}
+
+export interface ImportPreviewRow {
+  index: number
+  type: TransactionType
+  suggestedCategoryId: number | null
+  source: SuggestionSource
+  duplicate: boolean
+}
+
+export interface ImportCommitRow extends ImportRowInput {
+  categoryId?: number
+  transferAccountId?: number
+}
+
+export interface ImportCommitRequest {
+  accountId: number
+  fileName?: string
+  exchangeRate?: string | number
+  rows: ImportCommitRow[]
+}
+
+export interface ImportBatch {
+  id: number
+  accountId: number
+  accountName: string | null
+  fileName: string | null
+  rowCount: number
+  remaining: number
+  createdAt: string
+}
+
+export interface CategorizationRule {
+  id: number
+  pattern: string
+  categoryId: number
+  categoryName: string | null
+}
+
 // ===== Errors (RFC 7807) =====
 export interface ProblemDetail {
   type: string

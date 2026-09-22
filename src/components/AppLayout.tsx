@@ -9,6 +9,7 @@ import {
   Repeat,
   Settings2,
   Target,
+  Upload,
   Wallet,
 } from 'lucide-react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
@@ -23,6 +24,7 @@ const navItems = [
   { to: '/cuentas', label: 'Cuentas', icon: Wallet },
   { to: '/recurrentes', label: 'Recurrentes', icon: Repeat },
   { to: '/presupuestos', label: 'Presupuestos', icon: Target },
+  { to: '/importar', label: 'Importar', icon: Upload },
   { to: '/configurar', label: 'Configurar', icon: Settings2 },
   { to: '/reglas', label: 'Reglas', icon: PieChart },
   { to: '/categorias', label: 'Categorías', icon: Tag },

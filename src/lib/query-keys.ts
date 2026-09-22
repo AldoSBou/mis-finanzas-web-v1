@@ -30,6 +30,12 @@ export const queryKeys = {
   budgets: {
     period: (period: string) => ['budgets', period] as const,
   },
+  imports: {
+    recent: ['imports'] as const,
+  },
+  categorizationRules: {
+    all: ['categorization-rules'] as const,
+  },
   reports: {
     range: (months: number) => ['reports', months] as const,
   },
