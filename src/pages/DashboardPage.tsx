@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Settings2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { dashboardApi } from '@/api/services'
+import { accountsApi, dashboardApi } from '@/api/services'
 import { queryKeys } from '@/lib/query-keys'
 import {
   bucketColor,
@@ -22,6 +22,13 @@ export function DashboardPage() {
     queryKey: queryKeys.dashboard.period(period),
     queryFn: () => dashboardApi.get(period),
   })
+
+  const { data: accounts = [] } = useQuery({
+    queryKey: queryKeys.accounts.list(false),
+    queryFn: () => accountsApi.list(false),
+  })
+
+  const fmt = (v: string | number) => formatCurrency(v, data?.baseCurrency ?? 'PEN')
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto">
@@ -50,7 +57,7 @@ export function DashboardPage() {
                   No has configurado tu ingreso esperado para {periodLabel(period)}
                 </p>
                 <p className="text-amber-700 text-xs mt-0.5">
-                  La asignación está usando tu ingreso real del mes ({formatCurrency(data.income)}) como referencia.
+                  La asignación está usando tu ingreso real del mes ({fmt(data.income)}) como referencia.
                   Configúralo para ver tus metas reales.
                 </p>
               </div>
@@ -59,14 +66,19 @@ export function DashboardPage() {
 
           {/* Métricas */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-            <Metric label="Ingresos" value={formatCurrency(data.income)} />
-            <Metric label="Gastos" value={formatCurrency(data.expenses)} />
+            <Metric label="Ingresos" value={fmt(data.income)} />
+            <Metric label="Gastos" value={fmt(data.expenses)} />
             <Metric
-              label="Balance"
-              value={formatCurrency(data.balance)}
-              accent={parseFloat(data.balance) >= 0 ? 'positive' : 'negative'}
+              label="Ahorro del mes"
+              value={fmt(data.savings)}
+              hint={`En el año: ${fmt(data.savingsYearToDate)}`}
             />
-            <Metric label="Ahorro YTD" value={formatCurrency(data.savingsYearToDate)} />
+            <Metric
+              label="Disponible"
+              value={fmt(data.balance)}
+              accent={parseFloat(data.balance) >= 0 ? 'positive' : 'negative'}
+              hint="Ingresos − gastos − ahorro"
+            />
           </div>
 
           {/* Asignación + Top categorías */}
@@ -78,7 +90,7 @@ export function DashboardPage() {
                 </h3>
                 {data.budgetConfigured && (
                   <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-brand-50 text-brand-700">
-                    Sobre {formatCurrency(data.expectedIncome)}
+                    Sobre {fmt(data.expectedIncome)}
                   </span>
                 )}
               </div>
@@ -100,9 +112,9 @@ export function DashboardPage() {
                               isOver ? 'text-red-600' : ''
                             }`}
                           >
-                            {formatCurrency(b.spent)}{' '}
+                            {fmt(b.spent)}{' '}
                             <span className="text-gray-400 font-normal">
-                              / {formatCurrency(b.allocated)}
+                              / {fmt(b.allocated)}
                             </span>
                           </span>
                         </div>
@@ -135,7 +147,7 @@ export function DashboardPage() {
                       <div key={c.categoryId}>
                         <div className="flex justify-between text-sm mb-1">
                           <span>{c.categoryName}</span>
-                          <span className="font-medium tabular-nums">{formatCurrency(c.total)}</span>
+                          <span className="font-medium tabular-nums">{fmt(c.total)}</span>
                         </div>
                         <div className="h-2 bg-gray-100 rounded overflow-hidden">
                           <div className="h-full bg-brand-500 rounded" style={{ width: `${pct}%` }} />
@@ -147,6 +159,41 @@ export function DashboardPage() {
               )}
             </div>
           </div>
+
+          {accounts.length > 0 && (
+            <div className="card mt-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold">Cuentas</h3>
+                <Link to="/cuentas" className="text-xs text-brand-700 hover:underline">
+                  Ver todas
+                </Link>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2">
+                {accounts.map((a) => (
+                  <Link
+                    key={a.id}
+                    to={`/movimientos?cuenta=${a.id}`}
+                    className="flex items-center justify-between text-sm py-1 hover:text-brand-700"
+                  >
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: a.color ?? '#6B6B6B' }}
+                      />
+                      <span className="truncate">{a.name}</span>
+                    </span>
+                    <span
+                      className={`font-medium tabular-nums ${
+                        parseFloat(a.balance) < 0 ? 'text-red-600' : ''
+                      }`}
+                    >
+                      {formatCurrency(a.balance, a.currency)}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
@@ -157,10 +204,12 @@ function Metric({
   label,
   value,
   accent,
+  hint,
 }: {
   label: string
   value: string
   accent?: 'positive' | 'negative'
+  hint?: string
 }) {
   const color =
     accent === 'positive' ? 'text-brand-700' : accent === 'negative' ? 'text-red-600' : ''
@@ -168,6 +217,7 @@ function Metric({
     <div className="card">
       <p className="text-[10px] uppercase tracking-wider text-gray-500 mb-1">{label}</p>
       <p className={`text-xl md:text-2xl font-semibold tabular-nums ${color}`}>{value}</p>
+      {hint && <p className="text-[11px] text-gray-500 mt-1">{hint}</p>}
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { LayoutDashboard, ListOrdered, PieChart, Tag, LogOut, Plus, Settings2 } from 'lucide-react'
+import { LayoutDashboard, ListOrdered, PieChart, Tag, LogOut, Plus, Settings2, Wallet } from 'lucide-react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/features/auth/AuthProvider'
 import { useState } from 'react'
@@ -7,6 +7,7 @@ import { TransactionFormModal } from '@/features/transactions/TransactionFormMod
 const navItems = [
   { to: '/', label: 'Panel', icon: LayoutDashboard, end: true },
   { to: '/movimientos', label: 'Movimientos', icon: ListOrdered },
+  { to: '/cuentas', label: 'Cuentas', icon: Wallet },
   { to: '/configurar', label: 'Configurar', icon: Settings2 },
   { to: '/reglas', label: 'Reglas', icon: PieChart },
   { to: '/categorias', label: 'Categorías', icon: Tag },
@@ -70,7 +71,7 @@ export function AppLayout() {
         <Outlet />
       </main>
 
-      {/* Tab bar (mobile) - mostramos Panel, Movimientos, FAB, Configurar, Más */}
+      {/* Tab bar (mobile) - Panel, Movimientos, FAB, Cuentas, Configurar (la regla del mes se elige ahí) */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 flex justify-around items-center px-2 pt-2 pb-3 z-30">
         <TabBarItem to="/" icon={LayoutDashboard} label="Panel" end />
         <TabBarItem to="/movimientos" icon={ListOrdered} label="Movim." />
@@ -84,8 +85,8 @@ export function AppLayout() {
           <Plus className="w-5 h-5" />
         </button>
 
+        <TabBarItem to="/cuentas" icon={Wallet} label="Cuentas" />
         <TabBarItem to="/configurar" icon={Settings2} label="Config." />
-        <TabBarItem to="/reglas" icon={PieChart} label="Reglas" />
       </nav>
 
       <TransactionFormModal

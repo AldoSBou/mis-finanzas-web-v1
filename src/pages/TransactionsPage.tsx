@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Pencil, Trash2 } from 'lucide-react'
-import { transactionsApi } from '@/api/services'
+import { useSearchParams } from 'react-router-dom'
+import { ArrowRightLeft, Pencil, Trash2 } from 'lucide-react'
+import { accountsApi, transactionsApi } from '@/api/services'
 import { queryKeys } from '@/lib/query-keys'
 import { currentPeriod, formatCurrency, periodLabel } from '@/lib/format'
 import { EmptyState, ErrorState, Loading } from '@/components/ui/States'
@@ -16,22 +17,36 @@ export function TransactionsPage() {
   const [page, setPage] = useState(0)
   const size = 20
   const [editing, setEditing] = useState<Transaction | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const accountParam = searchParams.get('cuenta')
+  const accountId = accountParam ? Number(accountParam) : undefined
+
+  const { data: accounts = [] } = useQuery({
+    queryKey: queryKeys.accounts.list(false),
+    queryFn: () => accountsApi.list(false),
+  })
 
   const { data, isLoading, error } = useQuery({
-    queryKey: queryKeys.transactions.list(period, page, size),
-    queryFn: () => transactionsApi.list(period, page, size),
+    queryKey: queryKeys.transactions.list(period, page, size, accountId),
+    queryFn: () => transactionsApi.list(period, page, size, accountId),
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => transactionsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.transactions.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.accounts.all })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
     },
   })
 
+  const changeAccount = (value: string) => {
+    setPage(0)
+    setSearchParams(value ? { cuenta: value } : {})
+  }
+
   const handleDelete = (t: Transaction) => {
-    if (confirm(`¿Eliminar este movimiento por ${formatCurrency(t.amount)}?`)) {
+    if (confirm(`¿Eliminar este movimiento por ${formatCurrency(t.amount, t.currency)}?`)) {
       deleteMutation.mutate(t.id)
     }
   }
@@ -48,13 +63,28 @@ export function TransactionsPage() {
             {periodLabel(period)}
           </p>
         </div>
-        <PeriodSelector
-          value={period}
-          onChange={(p) => {
-            setPeriod(p)
-            setPage(0)
-          }}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={accountParam ?? ''}
+            onChange={(e) => changeAccount(e.target.value)}
+            className="input w-auto py-1.5"
+            aria-label="Filtrar por cuenta"
+          >
+            <option value="">Todas las cuentas</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+          <PeriodSelector
+            value={period}
+            onChange={(p) => {
+              setPeriod(p)
+              setPage(0)
+            }}
+          />
+        </div>
       </header>
 
       {isLoading && <Loading />}
@@ -74,6 +104,7 @@ export function TransactionsPage() {
               <TransactionRow
                 key={t.id}
                 tx={t}
+                filterAccountId={accountId}
                 onEdit={() => setEditing(t)}
                 onDelete={() => handleDelete(t)}
               />
@@ -117,40 +148,60 @@ export function TransactionsPage() {
 
 function TransactionRow({
   tx,
+  filterAccountId,
   onEdit,
   onDelete,
 }: {
   tx: Transaction
+  /** Si la lista está filtrada por cuenta, una transferencia entrante se muestra como entrada */
+  filterAccountId?: number
   onEdit: () => void
   onDelete: () => void
 }) {
-  const isIncome = tx.type === 'INCOME'
-  const initial = tx.categoryName?.charAt(0).toUpperCase() ?? '?'
-  const bgColor = tx.categoryColor ?? '#6B6B6B'
+  const isTransfer = tx.type === 'TRANSFER'
+  const incoming = isTransfer && filterAccountId === tx.toAccountId
+  const title = isTransfer
+    ? (tx.description ?? 'Transferencia')
+    : (tx.description ?? tx.categoryName)
+  const subtitle = isTransfer
+    ? `${tx.accountName} → ${tx.toAccountName}`
+    : `${tx.categoryName} · ${tx.accountName}`
+
+  let sign = tx.type === 'INCOME' ? '+ ' : '− '
+  let shown = formatCurrency(tx.amount, tx.currency)
+  let color = tx.type === 'INCOME' ? 'text-brand-700' : 'text-gray-900'
+  if (isTransfer) {
+    color = 'text-gray-600'
+    if (incoming) {
+      sign = '+ '
+      shown = formatCurrency(tx.toAmount ?? tx.amount, tx.toCurrency ?? tx.currency)
+    } else if (filterAccountId === undefined) {
+      sign = ''
+    }
+  }
 
   return (
     <div className="flex items-center gap-3 px-4 py-3">
-      <div
-        className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-semibold flex-shrink-0"
-        style={{ backgroundColor: bgColor }}
-      >
-        {initial}
-      </div>
+      {isTransfer ? (
+        <div className="w-9 h-9 rounded-full flex items-center justify-center bg-gray-100 text-gray-600 flex-shrink-0">
+          <ArrowRightLeft className="w-4 h-4" />
+        </div>
+      ) : (
+        <div
+          className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-semibold flex-shrink-0"
+          style={{ backgroundColor: tx.categoryColor ?? '#6B6B6B' }}
+        >
+          {tx.categoryName?.charAt(0).toUpperCase() ?? '?'}
+        </div>
+      )}
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">{tx.description ?? tx.categoryName}</p>
-        <p className="text-xs text-gray-500 truncate">
-          {tx.categoryName}
-          {tx.paymentMethod ? ` · ${tx.paymentMethod}` : ''}
-        </p>
+        <p className="text-sm font-medium truncate">{title}</p>
+        <p className="text-xs text-gray-500 truncate">{subtitle}</p>
       </div>
       <div className="text-right">
-        <p
-          className={`text-sm font-medium tabular-nums ${
-            isIncome ? 'text-brand-700' : 'text-gray-900'
-          }`}
-        >
-          {isIncome ? '+ ' : '− '}
-          {formatCurrency(tx.amount, tx.currency)}
+        <p className={`text-sm font-medium tabular-nums ${color}`}>
+          {sign}
+          {shown}
         </p>
         <p className="text-xs text-gray-500">{tx.transactionDate}</p>
       </div>

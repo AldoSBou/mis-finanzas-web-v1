@@ -24,6 +24,7 @@ src/
 │   ├── ui/          → Componentes reusables (Modal, PeriodSelector, States)
 │   └── AppLayout.tsx → Layout con sidebar/tab bar
 ├── features/
+│   ├── accounts/    → AccountFormModal
 │   ├── auth/        → AuthProvider, RequireAuth
 │   └── transactions/ → TransactionFormModal
 ├── hooks/           → (vacío, para hooks futuros)
@@ -107,7 +108,8 @@ O en producción, configura el deployment para que sirva ambos en el mismo domin
 - [ ] Crear/editar/eliminar reglas (la página actual solo lee).
 - [ ] Activar regla del mes desde la UI.
 - [ ] CRUD completo de categorías.
-- [ ] Configurar ingreso esperado mensual (`POST /api/budgets`).
+- [x] Configurar ingreso esperado mensual (`POST /api/budgets`).
+- [x] Cuentas, transferencias y multi-moneda.
 - [ ] Filtros adicionales en movimientos (categoría, tipo, búsqueda).
 - [ ] Gráfico de tendencia con Recharts en el dashboard.
 - [ ] Importador CSV de movimientos bancarios.

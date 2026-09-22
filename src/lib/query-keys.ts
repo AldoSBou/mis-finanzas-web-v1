@@ -6,11 +6,16 @@ export const queryKeys = {
     all: ['categories'] as const,
     list: (includeArchived: boolean) => ['categories', { includeArchived }] as const,
   },
+  accounts: {
+    all: ['accounts'] as const,
+    list: (includeArchived: boolean) => ['accounts', { includeArchived }] as const,
+  },
   transactions: {
     all: ['transactions'] as const,
-    list: (period: string, page: number, size: number) =>
-      ['transactions', period, { page, size }] as const,
+    list: (period: string, page: number, size: number, accountId?: number) =>
+      ['transactions', period, { page, size, accountId }] as const,
     detail: (id: number) => ['transactions', id] as const,
+    exchangeRate: (currency: string) => ['transactions', 'exchange-rate', currency] as const,
   },
   rules: {
     all: ['allocation-rules'] as const,

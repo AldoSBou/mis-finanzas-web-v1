@@ -1,10 +1,13 @@
 import { api } from '@/lib/api-client'
 import type {
+  Account,
+  AccountRequest,
   AllocationRule,
   AllocationRuleRequest,
   Category,
   CategoryRequest,
   DashboardResponse,
+  ExchangeRate,
   MonthlyBudget,
   MonthlyBudgetRequest,
   Transaction,
@@ -35,9 +38,27 @@ export const categoriesApi = {
   archive: (id: number) => api.delete<void>(`/categories/${id}`).then((r) => r.data),
 }
 
+export const accountsApi = {
+  list: (includeArchived = false) =>
+    api
+      .get<Account[]>('/accounts', { params: { includeArchived } })
+      .then((r) => r.data),
+  create: (req: AccountRequest) => api.post<Account>('/accounts', req).then((r) => r.data),
+  update: (id: number, req: AccountRequest) =>
+    api.put<Account>(`/accounts/${id}`, req).then((r) => r.data),
+  archive: (id: number) => api.delete<void>(`/accounts/${id}`).then((r) => r.data),
+}
+
 export const transactionsApi = {
-  list: async (period: string, page = 0, size = 20): Promise<TransactionPage> => {
-    const r = await api.get<Transaction[]>('/transactions', { params: { period, page, size } })
+  list: async (
+    period: string,
+    page = 0,
+    size = 20,
+    accountId?: number,
+  ): Promise<TransactionPage> => {
+    const r = await api.get<Transaction[]>('/transactions', {
+      params: { period, page, size, accountId },
+    })
     const meta = (r as { meta?: Meta }).meta
     const pag = meta?.pagination
     return {
@@ -53,6 +74,14 @@ export const transactionsApi = {
   update: (id: number, req: TransactionRequest) =>
     api.put<Transaction>(`/transactions/${id}`, req).then((r) => r.data),
   delete: (id: number) => api.delete<void>(`/transactions/${id}`).then((r) => r.data),
+  /** Último tipo de cambio usado para la moneda; null si nunca se usó (204). */
+  latestExchangeRate: async (currency: string): Promise<ExchangeRate | null> => {
+    const r = await api.get<ExchangeRate | ''>('/transactions/exchange-rate', {
+      params: { currency },
+    })
+    if (r.status === 204) return null
+    return r.data as ExchangeRate
+  },
 }
 
 export const allocationRulesApi = {

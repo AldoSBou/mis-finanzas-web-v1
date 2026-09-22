@@ -73,3 +73,31 @@ const BUCKET_COLORS: Record<string, string> = {
 export function bucketColor(bucket: string): string {
   return BUCKET_COLORS[bucket] ?? '#6B6B6B'
 }
+
+const ACCOUNT_TYPE_LABELS: Record<string, string> = {
+  CASH: 'Efectivo',
+  BANK: 'Cuenta bancaria',
+  CREDIT_CARD: 'Tarjeta de crédito',
+  EWALLET: 'Billetera digital',
+  SAVINGS: 'Ahorro',
+  INVESTMENT: 'Inversión',
+}
+
+export const ACCOUNT_TYPES = Object.keys(ACCOUNT_TYPE_LABELS) as Array<
+  'CASH' | 'BANK' | 'CREDIT_CARD' | 'EWALLET' | 'SAVINGS' | 'INVESTMENT'
+>
+
+export function accountTypeLabel(type: string): string {
+  return ACCOUNT_TYPE_LABELS[type] ?? type
+}
+
+/** Monedas ofrecidas en los formularios */
+export const CURRENCIES = ['PEN', 'USD', 'EUR'] as const
+
+/** Símbolo corto de una moneda: S/, US$, € */
+export function currencySymbol(currency: string): string {
+  const part = new Intl.NumberFormat('es-PE', { style: 'currency', currency })
+    .formatToParts(0)
+    .find((p) => p.type === 'currency')
+  return part?.value ?? currency
+}
