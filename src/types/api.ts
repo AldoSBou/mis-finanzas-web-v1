@@ -295,6 +295,31 @@ export interface DashboardResponse {
   budgetAlerts: CategoryBudgetItem[]
 }
 
+// ===== Reports =====
+export interface MonthSummary {
+  period: string
+  income: string
+  expenses: string
+  savings: string
+  net: string
+  netWorth: string
+}
+
+export interface CategorySeries {
+  /** null = "Otros" */
+  categoryId: number | null
+  name: string
+  total: string
+  monthly: string[]
+}
+
+export interface ReportResponse {
+  baseCurrency: string
+  months: MonthSummary[]
+  categories: CategorySeries[]
+  netWorthApproximate: boolean
+}
+
 // ===== Errors (RFC 7807) =====
 export interface ProblemDetail {
   type: string

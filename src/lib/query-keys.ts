@@ -30,6 +30,9 @@ export const queryKeys = {
   budgets: {
     period: (period: string) => ['budgets', period] as const,
   },
+  reports: {
+    range: (months: number) => ['reports', months] as const,
+  },
   dashboard: {
     period: (period: string) => ['dashboard', period] as const,
   },

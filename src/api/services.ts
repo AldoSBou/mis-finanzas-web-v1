@@ -14,6 +14,7 @@ import type {
   Recurring,
   RecurringRequest,
   RegisterOccurrenceRequest,
+  ReportResponse,
   Transaction,
   TransactionPage,
   TransactionRequest,
@@ -129,6 +130,13 @@ export const budgetsApi = {
   },
   upsert: (req: MonthlyBudgetRequest) =>
     api.post<MonthlyBudget>('/budgets', req).then((r) => r.data),
+}
+
+export const reportsApi = {
+  get: (months: number, until?: string) =>
+    api
+      .get<ReportResponse>('/reports', { params: { months, until } })
+      .then((r) => r.data),
 }
 
 export const dashboardApi = {
