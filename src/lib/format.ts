@@ -116,6 +116,20 @@ export function budgetColor(status: string): string {
   return '#0F6E56'
 }
 
+/** 'YYYY-MM' → 'marzo de 2027' */
+export function monthYear(period: string): string {
+  const [y, m] = period.split('-').map(Number)
+  return new Intl.DateTimeFormat('es-PE', { month: 'long', year: 'numeric' }).format(new Date(y, m - 1, 1))
+}
+
+/** 'YYYY-MM-DD' → '31 dic. 2026' */
+export function longDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Intl.DateTimeFormat('es-PE', { day: 'numeric', month: 'short', year: 'numeric' }).format(
+    new Date(y, m - 1, d),
+  )
+}
+
 /** Monedas ofrecidas en los formularios */
 export const CURRENCIES = ['PEN', 'USD', 'EUR'] as const
 

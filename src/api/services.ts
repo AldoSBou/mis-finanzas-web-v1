@@ -6,10 +6,15 @@ import type {
   AllocationRuleRequest,
   Category,
   CategorizationRule,
+  Contribution,
+  ContributionRequest,
   CategoryBudgetSummary,
   CategoryRequest,
   DashboardResponse,
   ExchangeRate,
+  Goal,
+  GoalRequest,
+  GoalsOverview,
   ImportBatch,
   ImportCommitRequest,
   ImportPreviewRow,
@@ -165,6 +170,19 @@ export const categorizationRulesApi = {
       .post<CategorizationRule>('/categorization-rules', { pattern, categoryId })
       .then((r) => r.data),
   remove: (id: number) => api.delete<void>(`/categorization-rules/${id}`).then((r) => r.data),
+}
+
+export const goalsApi = {
+  overview: () => api.get<GoalsOverview>('/goals').then((r) => r.data),
+  create: (req: GoalRequest) => api.post<Goal>('/goals', req).then((r) => r.data),
+  update: (id: number, req: GoalRequest) => api.put<Goal>(`/goals/${id}`, req).then((r) => r.data),
+  remove: (id: number) => api.delete<void>(`/goals/${id}`).then((r) => r.data),
+  contributions: (id: number) =>
+    api.get<Contribution[]>(`/goals/${id}/contributions`).then((r) => r.data),
+  contribute: (id: number, req: ContributionRequest) =>
+    api.post<Contribution>(`/goals/${id}/contributions`, req).then((r) => r.data),
+  removeContribution: (id: number, contributionId: number) =>
+    api.delete<void>(`/goals/${id}/contributions/${contributionId}`).then((r) => r.data),
 }
 
 export const reportsApi = {

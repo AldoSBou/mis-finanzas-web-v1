@@ -16,6 +16,7 @@ import { PeriodSelector } from '@/components/ui/PeriodSelector'
 import { getErrorMessage } from '@/lib/api-client'
 import { UpcomingCard } from '@/features/recurring/UpcomingCard'
 import { BudgetAlertsCard } from '@/features/budgets/BudgetAlertsCard'
+import { GoalsCard } from '@/features/goals/GoalsCard'
 
 export function DashboardPage() {
   const [period, setPeriod] = useState(currentPeriod())
@@ -177,6 +178,8 @@ export function DashboardPage() {
               <UpcomingCard items={data.upcoming} />
             </div>
           )}
+
+          <GoalsCard />
 
           {accounts.length > 0 && (
             <div className="card mt-4">

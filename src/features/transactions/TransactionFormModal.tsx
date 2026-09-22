@@ -268,6 +268,7 @@ export function TransactionFormModal({
       queryClient.invalidateQueries({ queryKey: queryKeys.recurring.all })
       queryClient.invalidateQueries({ queryKey: queryKeys.categoryBudgets.all })
       queryClient.invalidateQueries({ queryKey: ['reports'] })
+      queryClient.invalidateQueries({ queryKey: ['goals'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       onSuccess?.()
       onClose()

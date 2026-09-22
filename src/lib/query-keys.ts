@@ -36,6 +36,10 @@ export const queryKeys = {
   categorizationRules: {
     all: ['categorization-rules'] as const,
   },
+  goals: {
+    all: ['goals'] as const,
+    contributions: (id: number) => ['goals', id, 'contributions'] as const,
+  },
   reports: {
     range: (months: number) => ['reports', months] as const,
   },

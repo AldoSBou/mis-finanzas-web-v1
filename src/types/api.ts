@@ -378,6 +378,74 @@ export interface CategorizationRule {
   categoryName: string | null
 }
 
+// ===== Goals =====
+export interface Goal {
+  id: number
+  name: string
+  accountId: number
+  accountName: string | null
+  currency: string | null
+  targetAmount: string
+  targetDate: string | null
+  color: string | null
+  archived: boolean
+  saved: string
+  remaining: string
+  percentage: string
+  completed: boolean
+  /** Meses de aporte que quedan (incluye el actual); 0 si la fecha ya pasó */
+  monthsLeft: number | null
+  /** Cuánto aportar al mes para llegar a la fecha */
+  monthlyNeeded: string | null
+  /** Aporte neto promedio de los últimos 3 meses */
+  monthlyPace: string
+  /** Mes (YYYY-MM) en que se llegaría a este ritmo */
+  projectedPeriod: string | null
+  onTrack: boolean | null
+}
+
+export interface GoalRequest {
+  name: string
+  targetAmount: string | number
+  targetDate?: string
+  accountId: number
+  color?: string
+  archived?: boolean
+}
+
+export interface AccountAllocation {
+  accountId: number
+  accountName: string
+  currency: string
+  balance: string
+  assigned: string
+  unassigned: string
+}
+
+export interface GoalsOverview {
+  goals: Goal[]
+  accounts: AccountAllocation[]
+}
+
+export interface ContributionRequest {
+  amount: string | number
+  direction: 'IN' | 'OUT'
+  /** Con otra cuenta se registra la transferencia; sin ella solo se asigna o libera saldo */
+  otherAccountId?: number
+  exchangeRate?: string | number
+  date: string
+  note?: string
+}
+
+export interface Contribution {
+  id: number
+  /** Positivo = aporte, negativo = retiro */
+  amount: string
+  date: string
+  note: string | null
+  transactionId: number | null
+}
+
 // ===== Errors (RFC 7807) =====
 export interface ProblemDetail {
   type: string

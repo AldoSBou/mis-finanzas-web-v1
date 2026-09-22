@@ -118,7 +118,7 @@ O en producción, configura el deployment para que sirva ambos en el mismo domin
 - [x] Reportes con gráficos (Recharts) y vista de tabla.
 - [x] Búsqueda, filtros y exportación CSV.
 - [x] Importar estados de cuenta (PDF, CSV, Excel) con reglas de categorización y deshacer. PDF con perfiles verificados para tarjetas Scotiabank e Interbank (cuadran al centavo con el banco); PDFs con contraseña se abren en el navegador.
-- [ ] Metas de ahorro.
+- [x] Metas de ahorro (varias por cuenta, aportes con transferencia o solo asignando saldo, aporte mensual sugerido).
 - [ ] Tarjetas de crédito con cuotas.
 - [ ] Registro sin conexión.
 - [ ] Modo oscuro.
