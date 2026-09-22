@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { recurringApi } from '@/api/services'
 import { Modal } from '@/components/ui/Modal'

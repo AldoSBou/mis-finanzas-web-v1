@@ -1,5 +1,5 @@
 import { AlertTriangle } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { BudgetBar } from '@/features/budgets/BudgetBar'
 import { formatCurrency } from '@/lib/format'
 import type { CategoryBudgetItem } from '@/types/api'

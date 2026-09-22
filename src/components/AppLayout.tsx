@@ -12,7 +12,7 @@ import {
   Upload,
   Wallet,
 } from 'lucide-react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate } from 'react-router'
 import { useAuth } from '@/features/auth/AuthProvider'
 import { useState } from 'react'
 import { TransactionFormModal } from '@/features/transactions/TransactionFormModal'

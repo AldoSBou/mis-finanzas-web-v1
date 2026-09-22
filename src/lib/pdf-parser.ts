@@ -278,26 +278,28 @@ export async function readPdf(
   const pdfjs = await import('pdfjs-dist')
   const { default: workerUrl } = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
   pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
-  let doc
+  // La tarea de carga libera el worker al terminar (en pdf.js 6 el documento no tiene destroy)
+  const task = pdfjs.getDocument({ data: new Uint8Array(buffer), password })
+  const pages: PdfItem[][] = []
   try {
-    doc = await pdfjs.getDocument({ data: new Uint8Array(buffer), password }).promise
+    const doc = await task.promise
+    for (let p = 1; p <= doc.numPages; p++) {
+      const page = await doc.getPage(p)
+      const content = await page.getTextContent()
+      pages.push(
+        content.items
+          .filter((i): i is typeof i & { str: string; transform: number[]; width: number } => 'str' in i)
+          .map((i) => ({ x: i.transform[4], y: i.transform[5], w: i.width, str: i.str })),
+      )
+    }
   } catch (err) {
     if (err instanceof Error && err.name === 'PasswordException') {
       throw new PdfPasswordError(!!password)
     }
     throw err
+  } finally {
+    await task.destroy()
   }
-  const pages: PdfItem[][] = []
-  for (let p = 1; p <= doc.numPages; p++) {
-    const page = await doc.getPage(p)
-    const content = await page.getTextContent()
-    pages.push(
-      content.items
-        .filter((i): i is typeof i & { str: string; transform: number[]; width: number } => 'str' in i)
-        .map((i) => ({ x: i.transform[4], y: i.transform[5], w: i.width, str: i.str })),
-    )
-  }
-  await doc.destroy()
   const table = pdfToTable(pages)
   if (table.length <= 1) {
     throw new Error(

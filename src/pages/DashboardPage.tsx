@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Settings2 } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { accountsApi, dashboardApi } from '@/api/services'
 import { queryKeys } from '@/lib/query-keys'
 import {

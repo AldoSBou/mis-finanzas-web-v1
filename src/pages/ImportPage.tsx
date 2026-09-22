@@ -1,5 +1,5 @@
 import { useMemo, useState, type ChangeEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, FileSpreadsheet } from 'lucide-react'
 import { accountsApi, categoriesApi, importsApi, transactionsApi } from '@/api/services'

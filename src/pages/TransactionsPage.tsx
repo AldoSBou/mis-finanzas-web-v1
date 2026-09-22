@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router'
 import { ArrowRightLeft, Download, Pencil, Repeat, Search, Trash2 } from 'lucide-react'
 import { accountsApi, categoriesApi, transactionsApi } from '@/api/services'
 import { queryKeys } from '@/lib/query-keys'
