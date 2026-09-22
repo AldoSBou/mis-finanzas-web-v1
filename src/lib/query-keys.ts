@@ -16,6 +16,12 @@ export const queryKeys = {
       ['transactions', 'list', search, { page, size }] as const,
     detail: (id: number) => ['transactions', id] as const,
     exchangeRate: (currency: string) => ['transactions', 'exchange-rate', currency] as const,
+    installments: (id: number) => ['transactions', id, 'installments'] as const,
+  },
+  // Bajo 'accounts': todo lo que invalida saldos (movimientos, importaciones, metas) las refresca
+  cards: {
+    all: ['accounts', 'cards'] as const,
+    detail: (id: number) => ['accounts', 'cards', id] as const,
   },
   categoryBudgets: {
     all: ['category-budgets'] as const,

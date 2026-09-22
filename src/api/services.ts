@@ -4,6 +4,9 @@ import type {
   AccountRequest,
   AllocationRule,
   AllocationRuleRequest,
+  CardDetail,
+  CardStatement,
+  CardSummary,
   Category,
   CategorizationRule,
   Contribution,
@@ -19,12 +22,15 @@ import type {
   ImportCommitRequest,
   ImportPreviewRow,
   ImportRowInput,
+  InstallmentPlan,
+  InstallmentRequest,
   MonthlyBudget,
   MonthlyBudgetRequest,
   Recurring,
   RecurringRequest,
   RegisterOccurrenceRequest,
   ReportResponse,
+  StatementRequest,
   Transaction,
   TransactionPage,
   TransactionRequest,
@@ -100,6 +106,15 @@ export const transactionsApi = {
     link.click()
     URL.revokeObjectURL(url)
   },
+  /** Plan de cuotas de una compra con tarjeta; null si se pagó en una sola (204). */
+  installments: async (id: number): Promise<InstallmentPlan | null> => {
+    const r = await api.get<InstallmentPlan | ''>(`/transactions/${id}/installments`)
+    return r.status === 204 || !r.data ? null : r.data
+  },
+  setInstallments: (id: number, req: InstallmentRequest) =>
+    api.put<InstallmentPlan>(`/transactions/${id}/installments`, req).then((r) => r.data),
+  removeInstallments: (id: number) =>
+    api.delete<void>(`/transactions/${id}/installments`).then((r) => r.data),
   /** Último tipo de cambio usado para la moneda; null si nunca se usó (204). */
   latestExchangeRate: async (currency: string): Promise<ExchangeRate | null> => {
     const r = await api.get<ExchangeRate | ''>('/transactions/exchange-rate', {
@@ -183,6 +198,15 @@ export const goalsApi = {
     api.post<Contribution>(`/goals/${id}/contributions`, req).then((r) => r.data),
   removeContribution: (id: number, contributionId: number) =>
     api.delete<void>(`/goals/${id}/contributions/${contributionId}`).then((r) => r.data),
+}
+
+export const cardsApi = {
+  list: () => api.get<CardSummary[]>('/cards').then((r) => r.data),
+  detail: (id: number) => api.get<CardDetail>(`/cards/${id}`).then((r) => r.data),
+  saveStatement: (id: number, req: StatementRequest) =>
+    api.post<CardStatement>(`/cards/${id}/statements`, req).then((r) => r.data),
+  removeStatement: (id: number, statementId: number) =>
+    api.delete<void>(`/cards/${id}/statements/${statementId}`).then((r) => r.data),
 }
 
 export const reportsApi = {

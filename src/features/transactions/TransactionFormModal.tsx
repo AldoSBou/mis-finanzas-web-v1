@@ -31,6 +31,10 @@ interface FormValues {
   frequency: '' | Frequency
   autoCreate: boolean
   endDate: string
+  /** Compras con tarjeta: '1' = una sola cuota */
+  installments: string
+  /** Cuota si incluye intereses; vacío = monto / cuotas */
+  installmentAmount: string
 }
 
 interface Props {
@@ -43,6 +47,13 @@ interface Props {
   recurring?: Recurring | null
   /** Crear un recurrente nuevo (la repetición es obligatoria) */
   recurringMode?: boolean
+  /** Valores iniciales de un movimiento nuevo (p. ej. pagar una tarjeta) */
+  preset?: {
+    type?: TransactionType
+    toAccountId?: number
+    amount?: string
+    description?: string
+  }
 }
 
 const LAST_ACCOUNT_KEY = 'mis-finanzas:last-account'
@@ -76,6 +87,8 @@ const EMPTY: FormValues = {
   frequency: '',
   autoCreate: true,
   endDate: '',
+  installments: '1',
+  installmentAmount: '',
 }
 
 const TYPE_OPTIONS: Array<{ value: TransactionType; label: string }> = [
@@ -91,6 +104,7 @@ export function TransactionFormModal({
   initial,
   recurring,
   recurringMode,
+  preset,
 }: Props) {
   const queryClient = useQueryClient()
   const { user } = useAuth()
@@ -107,6 +121,8 @@ export function TransactionFormModal({
   const exchangeRate = watch('exchangeRate')
   const frequency = watch('frequency')
   const autoCreate = watch('autoCreate')
+  const installments = watch('installments')
+  const installmentAmount = watch('installmentAmount')
   const isTransfer = type === 'TRANSFER'
   const isRecurringForm = !!recurring || !!recurringMode
   const repeats = isRecurringForm || !!frequency
@@ -148,6 +164,14 @@ export function TransactionFormModal({
   const needsRate =
     !!from && from.currency !== baseCurrency && !(isTransfer && to?.currency === baseCurrency)
 
+  // Compras con tarjeta de crédito: se pueden pagar en cuotas
+  const isCardExpense = type === 'EXPENSE' && from?.type === 'CREDIT_CARD' && !repeats
+  const { data: currentPlan } = useQuery({
+    queryKey: queryKeys.transactions.installments(initial?.id ?? 0),
+    queryFn: () => transactionsApi.installments(initial!.id),
+    enabled: open && !!initial && initial.type === 'EXPENSE',
+  })
+
   const { data: suggestedRate } = useQuery({
     queryKey: queryKeys.transactions.exchangeRate(from?.currency ?? ''),
     queryFn: () => transactionsApi.latestExchangeRate(from!.currency),
@@ -186,22 +210,57 @@ export function TransactionFormModal({
         frequency: '',
         autoCreate: true,
         endDate: '',
+        installments: '1',
+        installmentAmount: '',
       })
     } else {
-      reset({ ...EMPTY, transactionDate: todayIso(), frequency: recurringMode ? 'MONTHLY' : '' })
+      reset({
+        ...EMPTY,
+        transactionDate: todayIso(),
+        frequency: recurringMode ? 'MONTHLY' : '',
+        type: preset?.type ?? EMPTY.type,
+        toAccountId: preset?.toAccountId ? String(preset.toAccountId) : '',
+        amount: preset?.amount ?? '',
+        description: preset?.description ?? '',
+      })
     }
     setError(null)
+    // `preset` se lee solo al abrir: un objeto nuevo en cada render no debe reiniciar el formulario
   }, [initial, recurring, recurringMode, open, reset, baseCurrency])
+
+  // Al editar una compra en cuotas, carga su plan (la cuota solo si no es monto / cuotas)
+  useEffect(() => {
+    if (!open || !initial || !currentPlan) return
+    const even = (parseFloat(initial.amount) / currentPlan.installments).toFixed(2)
+    setValue('installments', String(currentPlan.installments))
+    setValue(
+      'installmentAmount',
+      parseFloat(currentPlan.installmentAmount).toFixed(2) === even ? '' : currentPlan.installmentAmount,
+    )
+  }, [open, initial, currentPlan, setValue])
 
   // Cuenta por defecto: la última usada; si no, la primera cuenta corriente en moneda base
   useEffect(() => {
     if (!open || initial || recurring || getValues('accountId') || accounts.length === 0) return
     const last = readLastAccount()
-    const spending = accounts.filter((a) => a.type !== 'SAVINGS' && a.type !== 'INVESTMENT')
+    // Al pagar una tarjeta, el origen no puede ser la misma tarjeta
+    const candidates = accounts.filter((a) => a.id !== preset?.toAccountId)
+    const spending = candidates.filter(
+      (a) =>
+        a.type !== 'SAVINGS' &&
+        a.type !== 'INVESTMENT' &&
+        (preset?.toAccountId === undefined || a.type !== 'CREDIT_CARD'),
+    )
     const fallback =
-      spending.find((a) => a.currency === baseCurrency) ?? spending[0] ?? accounts[0]
-    setValue('accountId', accounts.some((a) => String(a.id) === last) ? last : String(fallback.id))
-  }, [open, initial, recurring, accounts, baseCurrency, getValues, setValue])
+      spending.find((a) => a.currency === baseCurrency) ?? spending[0] ?? candidates[0]
+    if (!fallback) return
+    // El destino se vuelve a asignar ahora que el select tiene opciones
+    if (preset?.toAccountId) setValue('toAccountId', String(preset.toAccountId))
+    setValue(
+      'accountId',
+      !preset?.toAccountId && candidates.some((a) => String(a.id) === last) ? last : String(fallback.id),
+    )
+  }, [open, initial, recurring, accounts, baseCurrency, getValues, setValue, preset?.toAccountId])
 
   // Si cambia el tipo, limpia la categoría si ya no aplica
   useEffect(() => {
@@ -258,8 +317,22 @@ export function TransactionFormModal({
         }
         return created
       }
-      if (initial) return transactionsApi.update(initial.id, payload)
-      return transactionsApi.create(payload)
+      const saved = initial
+        ? await transactionsApi.update(initial.id, payload)
+        : await transactionsApi.create(payload)
+      const n = Number(values.installments)
+      if (isCardExpense && n >= 2) {
+        // Si la compra sigue en el mismo mes, se conserva desde cuándo se cobran las cuotas
+        const sameMonth = initial && initial.transactionDate.slice(0, 7) === values.transactionDate.slice(0, 7)
+        await transactionsApi.setInstallments(saved.id, {
+          installments: n,
+          installmentAmount: values.installmentAmount || undefined,
+          firstPeriod: sameMonth && currentPlan ? currentPlan.firstPeriod : undefined,
+        })
+      } else if (currentPlan && isCardExpense) {
+        await transactionsApi.removeInstallments(saved.id)
+      }
+      return saved
     },
     onSuccess: (_data, values) => {
       saveLastAccount(values.accountId)
@@ -285,11 +358,27 @@ export function TransactionFormModal({
       return setError(`Indica cuánto se recibió en ${to!.currency}`)
     }
     if (needsRate && !values.exchangeRate) return setError('Indica el tipo de cambio')
+    const n = Number(values.installments)
+    if (isCardExpense && (!Number.isInteger(n) || n < 1 || n > 60)) {
+      return setError('Las cuotas van de 1 a 60')
+    }
+    if (
+      isCardExpense &&
+      n >= 2 &&
+      values.installmentAmount &&
+      parseFloat(values.installmentAmount) * n < parseFloat(values.amount) - 0.01 * n
+    ) {
+      return setError('Las cuotas no alcanzan a cubrir el monto de la compra')
+    }
     if (values.endDate && values.endDate < values.transactionDate) {
       return setError('La fecha de fin no puede ser anterior a la de inicio')
     }
     mutation.mutate(values)
   }
+
+  const nInstallments = Number(installments)
+  const evenInstallment =
+    nInstallments >= 2 && amount ? (parseFloat(amount) / nInstallments).toFixed(2) : null
 
   const amountInBase =
     needsRate && amount && exchangeRate ? parseFloat(amount) * parseFloat(exchangeRate) : null
@@ -441,6 +530,53 @@ export function TransactionFormModal({
             />
           </div>
         </div>
+
+        {isCardExpense && (
+          <div className="rounded-md border border-gray-200 p-3 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Cuotas</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="60"
+                  step="1"
+                  inputMode="numeric"
+                  {...register('installments')}
+                  className="input"
+                />
+              </div>
+              {nInstallments >= 2 && (
+                <div>
+                  <label className="label">Cuota ({currencySymbol(from!.currency)})</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    inputMode="decimal"
+                    {...register('installmentAmount')}
+                    className="input"
+                    placeholder={evenInstallment ?? '0.00'}
+                  />
+                </div>
+              )}
+            </div>
+            <p className="text-xs text-gray-500">
+              {nInstallments >= 2
+                ? `El gasto se registra completo en esta fecha; en Tarjetas verás ${nInstallments} cuotas de ${formatCurrency(
+                    installmentAmount || evenInstallment || 0,
+                    from!.currency,
+                  )} desde el mes siguiente. Si tu banco cobra intereses, escribe la cuota real.`
+                : '1 = una sola cuota. Si la pagas en cuotas, indica cuántas.'}
+            </p>
+          </div>
+        )}
+
+        {isTransfer && to && to.type === 'CREDIT_CARD' && (
+          <p className="text-xs text-brand-700 bg-brand-50 rounded px-3 py-2">
+            Pago de tarjeta: se descuenta del pago del mes en Tarjetas.
+          </p>
+        )}
 
         {isTransfer && to && (to.type === 'SAVINGS' || to.type === 'INVESTMENT') && (
           <p className="text-xs text-brand-700 bg-brand-50 rounded px-3 py-2">

@@ -1,10 +1,11 @@
 import { useMemo, useState, type ChangeEvent } from 'react'
 import { Link } from 'react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, FileSpreadsheet } from 'lucide-react'
+import { CheckCircle2, FileSpreadsheet, FileText } from 'lucide-react'
 import { accountsApi, categoriesApi, importsApi, transactionsApi } from '@/api/services'
 import { ErrorState, Loading } from '@/components/ui/States'
 import { useAuth } from '@/features/auth/AuthProvider'
+import { StatementFormModal } from '@/features/cards/StatementFormModal'
 import { ImportSidebar } from '@/features/import/ImportSidebar'
 import { ReviewStep, type ReviewRow } from '@/features/import/ReviewStep'
 import { getErrorMessage } from '@/lib/api-client'
@@ -25,7 +26,14 @@ import {
   type DecimalStyle,
 } from '@/lib/import-parser'
 import { PdfPasswordError } from '@/lib/pdf-parser'
-import { BANK_PROFILES, applyProfile, detectProfile, profileById } from '@/lib/bank-profiles'
+import {
+  BANK_PROFILES,
+  applyProfile,
+  detectProfile,
+  extractStatement,
+  profileById,
+  type StatementInfo,
+} from '@/lib/bank-profiles'
 import { queryKeys } from '@/lib/query-keys'
 import type { Account, ImportBatch } from '@/types/api'
 
@@ -132,6 +140,10 @@ export function ImportPage() {
   const [detectedName, setDetectedName] = useState<string | null>(null)
   // Tarjetas: cuenta desde la que se paga, para marcar los pagos como transferencia
   const [paymentAccountId, setPaymentAccountId] = useState('')
+  // Tarjetas: cierre, vencimiento y pago del mes leídos del estado de cuenta
+  const [statementInfo, setStatementInfo] = useState<StatementInfo | null>(null)
+  const [statementOpen, setStatementOpen] = useState(false)
+  const [statementSaved, setStatementSaved] = useState(false)
 
   const { data: accounts = [] } = useQuery({
     queryKey: queryKeys.accounts.list(false),
@@ -216,6 +228,8 @@ export function ImportPage() {
 
       setFileName(file.name)
       setReferenceDate(referenceDateFromText(text) ?? undefined)
+      setStatementInfo(account.type === 'CREDIT_CARD' ? extractStatement(active, text, account.currency) : null)
+      setStatementSaved(false)
       setCells(rows)
       setHeaderIndex(h)
       if (saved && saved.header === headerSig) {
@@ -337,6 +351,8 @@ export function ImportPage() {
     setCells([])
     setReview([])
     setResult(null)
+    setStatementInfo(null)
+    setStatementSaved(false)
     commitMutation.reset()
     previewMutation.reset()
   }
@@ -734,7 +750,41 @@ export function ImportPage() {
                 </button>
               </div>
               {undoMutation.error && <ErrorState message={getErrorMessage(undoMutation.error)} />}
+
+              {isCard && account && statementInfo && (
+                <div className="border-t border-gray-100 pt-4 mt-4 max-w-md mx-auto space-y-2">
+                  {statementSaved ? (
+                    <p className="text-sm text-brand-700">
+                      ✓ Pago del mes registrado.{' '}
+                      <Link to="/tarjetas" className="underline">
+                        Ver en Tarjetas
+                      </Link>
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-sm text-gray-700">{statementNote(statementInfo, account.currency)}</p>
+                      <button type="button" onClick={() => setStatementOpen(true)} className="btn-secondary">
+                        <FileText className="w-4 h-4 mr-1" />
+                        Registrar pago del mes
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
             </section>
+          )}
+
+          {account && isCard && (
+            <StatementFormModal
+              open={statementOpen}
+              onClose={() => setStatementOpen(false)}
+              accountId={account.id}
+              cardName={account.name}
+              currency={account.currency}
+              initial={statementInfo ?? undefined}
+              note={statementInfo?.totalDue ? 'Valores leídos del estado de cuenta: revísalos antes de guardar.' : undefined}
+              onSaved={() => setStatementSaved(true)}
+            />
           )}
 
           {step === 'file' && accounts.length === 0 && <Loading />}
@@ -744,6 +794,17 @@ export function ImportPage() {
       </div>
     </div>
   )
+}
+
+/** Qué se leyó del ciclo de la tarjeta, para invitar a registrar el pago del mes. */
+function statementNote(info: StatementInfo, currency: string): string {
+  if (info.totalDue && info.dueDate) {
+    return `Pago del mes: ${formatCurrency(info.totalDue, currency)}, vence el ${shortDate(info.dueDate)}. Regístralo para seguir cuánto te falta pagar.`
+  }
+  if (info.closingDate || info.dueDate) {
+    return 'Leímos las fechas del ciclo; copia el pago del mes de tu estado de cuenta para recibir el recordatorio de pago.'
+  }
+  return 'Registra el pago del mes de este estado de cuenta para recibir el recordatorio de pago.'
 }
 
 /** "✓ Cuadra con el estado de cuenta" o cuánto falta, si el archivo trae saldo inicial y final. */

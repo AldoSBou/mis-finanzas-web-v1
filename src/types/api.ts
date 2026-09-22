@@ -65,6 +65,10 @@ export interface Account {
   color: string | null
   icon: string | null
   archived: boolean
+  /** Solo tarjetas de crédito */
+  creditLimit: string | null
+  statementDay: number | null
+  dueDay: number | null
 }
 
 export interface AccountRequest {
@@ -74,6 +78,9 @@ export interface AccountRequest {
   initialBalance?: string | number
   color?: string
   icon?: string
+  creditLimit?: string | number | null
+  statementDay?: number | null
+  dueDay?: number | null
 }
 
 // ===== Transactions =====
@@ -444,6 +451,78 @@ export interface Contribution {
   date: string
   note: string | null
   transactionId: number | null
+}
+
+// ===== Tarjetas de crédito =====
+export type StatementStatus = 'PAID' | 'PENDING' | 'MINIMUM_PAID' | 'OVERDUE'
+
+export interface CardStatement {
+  id: number
+  closingDate: string
+  dueDate: string
+  /** Pago del mes que informa el banco */
+  totalDue: string
+  minimumDue: string | null
+  /** Lo que entró a la tarjeta después del cierre */
+  paid: string
+  remaining: string
+  status: StatementStatus
+  /** Días hasta el vencimiento (negativo si ya venció) */
+  daysLeft: number
+}
+
+export interface StatementRequest {
+  closingDate: string
+  dueDate: string
+  totalDue: string | number
+  minimumDue?: string | number | null
+}
+
+export interface InstallmentPlan {
+  transactionId: number
+  description: string | null
+  purchaseDate: string
+  total: string
+  installments: number
+  installmentAmount: string
+  firstPeriod: string
+  lastPeriod: string
+  /** Cuotas ya facturadas */
+  charged: number
+  remainingAmount: string
+  finished: boolean
+}
+
+export interface InstallmentRequest {
+  installments: number
+  installmentAmount?: string | number
+  firstPeriod?: string
+}
+
+export interface CardSummary {
+  accountId: number
+  name: string
+  currency: string
+  color: string | null
+  /** Deuda actual (positivo = debes) */
+  debt: string
+  creditLimit: string | null
+  available: string | null
+  utilization: string | null
+  statementDay: number | null
+  dueDay: number | null
+  nextClosingDate: string | null
+  nextDueDate: string | null
+  latestStatement: CardStatement | null
+  activeInstallments: number
+  installmentsRemaining: string
+  installmentsThisMonth: string
+}
+
+export interface CardDetail {
+  summary: CardSummary
+  statements: CardStatement[]
+  installments: InstallmentPlan[]
 }
 
 // ===== Errors (RFC 7807) =====

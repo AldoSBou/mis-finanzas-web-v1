@@ -29,8 +29,64 @@ export interface BankProfile {
    */
   openingPattern?: RegExp
   closingPattern: RegExp
+  /**
+   * Datos del ciclo para registrar el pago del mes (tarjetas). Recibe el texto del archivo con
+   * los espacios normalizados; lo que no encuentre queda para que lo complete el usuario.
+   */
+  statement?: (text: string, currency: string) => StatementInfo
   /** Dónde conseguir el archivo */
   hint: string
+}
+
+/** Datos del ciclo de la tarjeta leídos del estado de cuenta ('YYYY-MM-DD' y montos '1234.56'). */
+export interface StatementInfo {
+  closingDate?: string
+  dueDate?: string
+  totalDue?: string
+  minimumDue?: string
+}
+
+const DATE = String.raw`(\d{1,2}[/-]\d{1,2}[/-]\d{4})`
+const AMOUNT = String.raw`([\d,]+\.\d{2})`
+
+/** 'dd/mm/yyyy' o 'dd-mm-yyyy' → 'yyyy-mm-dd' */
+function dmy(value?: string): string | undefined {
+  const m = value && /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(value)
+  if (!m) return undefined
+  const [d, mo, y] = [Number(m[1]), Number(m[2]), Number(m[3])]
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return undefined
+  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+}
+
+const plain = (amount?: string) => (amount ? amount.replace(/,/g, '') : undefined)
+
+/** Cierre y vencimiento con las etiquetas más comunes; sirve para cualquier banco. */
+function genericStatement(text: string): StatementInfo {
+  const closing = new RegExp(
+    String.raw`(?:al cierre de|fecha de (?:cierre|corte)|facturaci[oó]n del \S+ al)\s*:?\s*${DATE}`,
+    'i',
+  ).exec(text)
+  const due = new RegExp(
+    String.raw`(?:[uú]ltimo d[ií]a de pago|fecha l[ií]mite de pago|fecha de vencimiento|pagar hasta(?: el)?)\s*:?\s*${DATE}`,
+    'i',
+  ).exec(text)
+  return { closingDate: dmy(closing?.[1]), dueDate: dmy(due?.[1]) }
+}
+
+/**
+ * Vencimiento sin etiqueta: la fecha más tardía hasta 60 días después del cierre (otras fechas
+ * del PDF, como números de operación con guiones, quedan fuera de esa ventana).
+ */
+function dueAfter(text: string, closing: string): string | undefined {
+  const limit = new Date(`${closing}T00:00:00Z`)
+  limit.setUTCDate(limit.getUTCDate() + 60)
+  const max = limit.toISOString().slice(0, 10)
+  let best: string | undefined
+  for (const m of text.matchAll(new RegExp(String.raw`\b${DATE}\b`, 'g'))) {
+    const d = dmy(m[1])
+    if (d && d > closing && d <= max && (!best || d > best)) best = d
+  }
+  return best
 }
 
 const GENERIC: BankProfile = {
@@ -41,6 +97,7 @@ const GENERIC: BankProfile = {
   paymentPattern: /gracias por su pago|pago recibido|su pago|pago (de )?tarjeta|pago tc\b|pago minimo/i,
   openingPattern: /saldo anterior|saldo inicial|deuda anterior/i,
   closingPattern: /deuda total|saldo final|saldo actual|nuevo saldo|total a pagar/i,
+  statement: genericStatement,
   hint: 'Sube el PDF del estado de cuenta o los movimientos en Excel/CSV de la banca por internet.',
 }
 
@@ -58,6 +115,12 @@ export const BANK_PROFILES: BankProfile[] = [
     paymentPattern: /gracias por su pago/i,
     openingPattern: /^saldo anterior$/i,
     closingPattern: /^deuda total$/i,
+    // "PERIODO DE FACTURACION DEL 05-08-2026 AL 04-09-2026"; el último día de pago es la fecha
+    // suelta más reciente. El pago del mes no viene como texto: lo ingresa el usuario.
+    statement: (text) => {
+      const closing = dmy(new RegExp(String.raw`facturaci[oó]n del \S+ al ${DATE}`, 'i').exec(text)?.[1])
+      return { closingDate: closing, dueDate: closing ? dueAfter(text, closing) : undefined }
+    },
     hint:
       'El PDF del estado de cuenta mensual que llega por correo (la contraseña suele ser tu DNI). ' +
       'Es bimoneda: impórtalo una vez en tu tarjeta en soles y otra en la de dólares.',
@@ -75,6 +138,22 @@ export const BANK_PROFILES: BankProfile[] = [
     // Deuda anterior + pagos, consumos y cobros del período = "Pago del mes (Suma de subtotales)"
     openingPattern: /^deb[ií]as en el estado de cuenta anterior/i,
     closingPattern: /^pago del mes\b/i,
+    // Cabecera: "ÚLTIMO DÍA DE PAGO | PAGO DEL MES | PAGO MÍNIMO" seguida de
+    // "15/09/2026 S/ 3,728.31 US$ 23.60 S/ 234.70 US$ 10.58"
+    statement: (text, currency) => {
+      const closing = dmy(new RegExp(String.raw`al cierre de ${DATE}`, 'i').exec(text)?.[1])
+      const m = new RegExp(
+        String.raw`${DATE} S/ ?${AMOUNT} US\$ ?${AMOUNT} S/ ?${AMOUNT} US\$ ?${AMOUNT}`,
+      ).exec(text)
+      if (!m) return { closingDate: closing }
+      const usd = currency === 'USD'
+      return {
+        closingDate: closing,
+        dueDate: dmy(m[1]),
+        totalDue: plain(usd ? m[3] : m[2]),
+        minimumDue: plain(usd ? m[5] : m[4]),
+      }
+    },
     hint:
       'El PDF del estado de cuenta mensual (contraseña habitual: tu DNI). Las fechas vienen sin ' +
       'año y se completan con el período. Es bimoneda: impórtalo una vez por moneda.',
@@ -86,6 +165,19 @@ export const profileById = (id: string) => BANK_PROFILES.find((p) => p.id === id
 /** Perfil verificado que reconoce el texto del archivo, si hay alguno. */
 export function detectProfile(text: string): BankProfile | null {
   return BANK_PROFILES.find((p) => p.detect && p.detect.test(text)) ?? null
+}
+
+/** Datos del ciclo según el perfil, completando con las etiquetas genéricas. */
+export function extractStatement(profile: BankProfile, text: string, currency: string): StatementInfo {
+  const normalized = text.replace(/\s+/g, ' ')
+  const generic = genericStatement(normalized)
+  const own = profile.statement ? profile.statement(normalized, currency) : {}
+  return {
+    closingDate: own.closingDate ?? generic.closingDate,
+    dueDate: own.dueDate ?? generic.dueDate,
+    totalDue: own.totalDue,
+    minimumDue: own.minimumDue,
+  }
 }
 
 /** Ajusta el mapeo adivinado con lo que el perfil sabe del formato. */

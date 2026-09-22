@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  CreditCard,
   LayoutDashboard,
   ListOrdered,
   PiggyBank,
@@ -23,6 +24,7 @@ const navItems = [
   { to: '/movimientos', label: 'Movimientos', icon: ListOrdered },
   { to: '/reportes', label: 'Reportes', icon: BarChart3 },
   { to: '/cuentas', label: 'Cuentas', icon: Wallet },
+  { to: '/tarjetas', label: 'Tarjetas', icon: CreditCard },
   { to: '/recurrentes', label: 'Recurrentes', icon: Repeat },
   { to: '/presupuestos', label: 'Presupuestos', icon: Target },
   { to: '/metas', label: 'Metas', icon: PiggyBank },

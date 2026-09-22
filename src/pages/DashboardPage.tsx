@@ -17,6 +17,7 @@ import { getErrorMessage } from '@/lib/api-client'
 import { UpcomingCard } from '@/features/recurring/UpcomingCard'
 import { BudgetAlertsCard } from '@/features/budgets/BudgetAlertsCard'
 import { GoalsCard } from '@/features/goals/GoalsCard'
+import { CardsDueCard } from '@/features/cards/CardsDueCard'
 
 export function DashboardPage() {
   const [period, setPeriod] = useState(currentPeriod())
@@ -87,6 +88,8 @@ export function DashboardPage() {
               }
             />
           </div>
+
+          <CardsDueCard />
 
           {data.budgetAlerts.length > 0 && (
             <div className="mb-4">

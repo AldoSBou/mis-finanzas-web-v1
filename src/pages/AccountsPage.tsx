@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { Archive, Pencil, Plus } from 'lucide-react'
+import { Archive, CreditCard, Pencil, Plus } from 'lucide-react'
 import { accountsApi } from '@/api/services'
 import { AccountFormModal } from '@/features/accounts/AccountFormModal'
 import { EmptyState, ErrorState, Loading } from '@/components/ui/States'
@@ -96,6 +96,15 @@ export function AccountsPage() {
           <p className="text-xs text-gray-400 mt-3">
             Toca una cuenta para ver sus movimientos del mes.
           </p>
+          {accounts.some((a) => a.type === 'CREDIT_CARD') && (
+            <Link
+              to="/tarjetas"
+              className="mt-3 inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"
+            >
+              <CreditCard className="w-4 h-4" aria-hidden />
+              Pago del mes y cuotas de tus tarjetas
+            </Link>
+          )}
         </>
       )}
 
