@@ -17,6 +17,10 @@ export const queryKeys = {
     detail: (id: number) => ['transactions', id] as const,
     exchangeRate: (currency: string) => ['transactions', 'exchange-rate', currency] as const,
   },
+  categoryBudgets: {
+    all: ['category-budgets'] as const,
+    period: (period: string) => ['category-budgets', period] as const,
+  },
   recurring: {
     all: ['recurring'] as const,
   },

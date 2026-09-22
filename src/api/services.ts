@@ -5,6 +5,7 @@ import type {
   AllocationRule,
   AllocationRuleRequest,
   Category,
+  CategoryBudgetSummary,
   CategoryRequest,
   DashboardResponse,
   ExchangeRate,
@@ -96,6 +97,17 @@ export const recurringApi = {
   register: (id: number, req: RegisterOccurrenceRequest = {}) =>
     api.post<void>(`/recurring/${id}/register`, req).then((r) => r.data),
   skip: (id: number) => api.post<void>(`/recurring/${id}/skip`).then((r) => r.data),
+}
+
+export const categoryBudgetsApi = {
+  summary: (period: string) =>
+    api
+      .get<CategoryBudgetSummary>('/category-budgets', { params: { period } })
+      .then((r) => r.data),
+  set: (categoryId: number, amount: string | number) =>
+    api.put<void>(`/category-budgets/${categoryId}`, { amount }).then((r) => r.data),
+  remove: (categoryId: number) =>
+    api.delete<void>(`/category-budgets/${categoryId}`).then((r) => r.data),
 }
 
 export const allocationRulesApi = {

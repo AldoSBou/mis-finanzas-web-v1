@@ -109,6 +109,13 @@ export function shortDate(iso: string): string {
   )
 }
 
+/** Color de la barra según el estado del presupuesto */
+export function budgetColor(status: string): string {
+  if (status === 'OVER') return '#DC2626'
+  if (status === 'WARNING') return '#D97706'
+  return '#0F6E56'
+}
+
 /** Monedas ofrecidas en los formularios */
 export const CURRENCIES = ['PEN', 'USD', 'EUR'] as const
 

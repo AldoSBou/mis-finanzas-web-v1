@@ -15,6 +15,7 @@ import { ErrorState, Loading } from '@/components/ui/States'
 import { PeriodSelector } from '@/components/ui/PeriodSelector'
 import { getErrorMessage } from '@/lib/api-client'
 import { UpcomingCard } from '@/features/recurring/UpcomingCard'
+import { BudgetAlertsCard } from '@/features/budgets/BudgetAlertsCard'
 
 export function DashboardPage() {
   const [period, setPeriod] = useState(currentPeriod())
@@ -85,6 +86,12 @@ export function DashboardPage() {
               }
             />
           </div>
+
+          {data.budgetAlerts.length > 0 && (
+            <div className="mb-4">
+              <BudgetAlertsCard items={data.budgetAlerts} currency={data.baseCurrency} />
+            </div>
+          )}
 
           {/* Asignación + Top categorías */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

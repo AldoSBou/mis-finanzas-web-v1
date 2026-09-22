@@ -168,6 +168,7 @@ export interface RegisterOccurrenceRequest {
 export interface UpcomingItem {
   recurringId: number
   type: TransactionType
+  categoryId: number | null
   description: string | null
   categoryName: string | null
   accountName: string | null
@@ -208,6 +209,34 @@ export interface AllocationRuleRequest {
   name: string
   description?: string
   percentages: Record<string, number>
+}
+
+// ===== Category budgets =====
+export type BudgetStatus = 'NONE' | 'OK' | 'WARNING' | 'OVER'
+
+export interface CategoryBudgetItem {
+  categoryId: number
+  categoryName: string
+  categoryColor: string | null
+  bucket: AllocationBucket | null
+  /** Límite mensual en moneda base; null si no tiene */
+  limit: string | null
+  spent: string
+  /** Recurrentes de gasto que faltan en el mes actual */
+  scheduled: string
+  percentage: string | null
+  status: BudgetStatus
+  /** Gastado + programado supera el límite */
+  willExceed: boolean
+}
+
+export interface CategoryBudgetSummary {
+  year: number
+  month: number
+  baseCurrency: string
+  totalLimit: string
+  totalSpent: string
+  items: CategoryBudgetItem[]
 }
 
 // ===== Budget =====
@@ -262,6 +291,8 @@ export interface DashboardResponse {
   upcoming: UpcomingItem[]
   /** Solo mes actual: disponible estimado a fin de mes */
   projectedBalance: string | null
+  /** Categorías al 80% o más de su límite, o que se pasarán con lo programado */
+  budgetAlerts: CategoryBudgetItem[]
 }
 
 // ===== Errors (RFC 7807) =====
