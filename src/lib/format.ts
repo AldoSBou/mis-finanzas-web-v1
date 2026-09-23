@@ -1,12 +1,15 @@
 export function formatCurrency(amount: string | number, currency = 'PEN'): string {
   const value = typeof amount === 'string' ? parseFloat(amount) : amount
   if (Number.isNaN(value)) return '—'
+  // "−" (U+2212) en vez de "-": en pantallas angostas el guion permite partir "-" / "S/ 733.65"
   return new Intl.NumberFormat('es-PE', {
     style: 'currency',
     currency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(value)
+  })
+    .format(value)
+    .replace(/^-/, '\u2212')
 }
 
 /** Para mostrar montos sin símbolo (en barras, badges, etc.) */

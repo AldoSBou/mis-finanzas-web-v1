@@ -3,6 +3,7 @@ import {
   CreditCard,
   LayoutDashboard,
   ListOrdered,
+  Menu,
   PiggyBank,
   PieChart,
   Tag,
@@ -13,10 +14,11 @@ import {
   Target,
   Upload,
   Wallet,
+  X,
 } from 'lucide-react'
-import { NavLink, Outlet, useNavigate } from 'react-router'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '@/features/auth/AuthProvider'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { TransactionFormModal } from '@/features/transactions/TransactionFormModal'
 
 const navItems = [
@@ -34,10 +36,20 @@ const navItems = [
   { to: '/categorias', label: 'Categorías', icon: Tag },
 ]
 
+/** Móvil: las que van en la barra inferior; el resto queda en "Más". */
+const TAB_PATHS = ['/', '/movimientos', '/cuentas']
+const moreItems = navItems.filter((i) => !TAB_PATHS.includes(i.to))
+
 export function AppLayout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const { pathname } = useLocation()
   const [newTxOpen, setNewTxOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const inMore = moreItems.some((i) => pathname.startsWith(i.to))
+
+  // Al navegar se cierra el menú
+  useEffect(() => setMoreOpen(false), [pathname])
 
   return (
     <div className="min-h-screen flex">
@@ -87,28 +99,93 @@ export function AppLayout() {
         </button>
       </aside>
 
-      {/* Main content */}
-      <main className="flex-1 pb-20 md:pb-0">
+      {/* Main content: en móvil deja espacio para la barra inferior y la zona segura */}
+      <main className="flex-1 min-w-0 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0">
         <Outlet />
       </main>
 
-      {/* Tab bar (mobile) - Panel, Movimientos, FAB, Cuentas, Configurar (la regla del mes se elige ahí) */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 flex justify-around items-center px-2 pt-2 pb-3 z-30">
+      {/* Tab bar (mobile) */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 grid grid-cols-5 items-center px-1 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] z-30">
         <TabBarItem to="/" icon={LayoutDashboard} label="Panel" end />
-        <TabBarItem to="/movimientos" icon={ListOrdered} label="Movim." />
+        <TabBarItem to="/movimientos" icon={ListOrdered} label="Movimientos" />
 
-        <button
-          type="button"
-          onClick={() => setNewTxOpen(true)}
-          className="bg-brand-500 text-white w-12 h-12 rounded-full flex items-center justify-center shadow-md -mt-6"
-          aria-label="Nuevo movimiento"
-        >
-          <Plus className="w-5 h-5" />
-        </button>
+        <div className="flex justify-center">
+          <button
+            type="button"
+            onClick={() => setNewTxOpen(true)}
+            className="bg-brand-500 text-white w-14 h-14 rounded-full flex items-center justify-center shadow-md -mt-7"
+            aria-label="Nuevo movimiento"
+          >
+            <Plus className="w-6 h-6" />
+          </button>
+        </div>
 
         <TabBarItem to="/cuentas" icon={Wallet} label="Cuentas" />
-        <TabBarItem to="/configurar" icon={Settings2} label="Config." />
+        <button
+          type="button"
+          onClick={() => setMoreOpen(true)}
+          className={`flex flex-col items-center gap-0.5 text-[11px] font-medium py-1 ${
+            inMore || moreOpen ? 'text-brand-700' : 'text-gray-500'
+          }`}
+          aria-haspopup="dialog"
+          aria-expanded={moreOpen}
+        >
+          <Menu className="w-5 h-5" />
+          Más
+        </button>
       </nav>
+
+      {/* Menú "Más" (mobile): hoja inferior con el resto de páginas */}
+      {moreOpen && (
+        <div className="md:hidden fixed inset-0 z-40 bg-black/40" onClick={() => setMoreOpen(false)}>
+          <div
+            role="dialog"
+            aria-label="Más opciones"
+            className="absolute bottom-0 inset-x-0 bg-white rounded-t-2xl pt-2 pb-[calc(1rem+env(safe-area-inset-bottom))] max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto w-10 h-1 rounded-full bg-gray-300 mb-2" aria-hidden />
+            <div className="flex items-center justify-between px-5 pb-2">
+              <div className="min-w-0">
+                <p className="font-semibold text-brand-500">Mis Finanzas</p>
+                <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMoreOpen(false)}
+                className="p-2 -mr-2 text-gray-500"
+                aria-label="Cerrar menú"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <nav className="grid grid-cols-3 gap-2 px-4 py-2">
+              {moreItems.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={({ isActive }) =>
+                    `flex flex-col items-center justify-center gap-1.5 rounded-xl py-4 text-xs font-medium ${
+                      isActive ? 'bg-brand-50 text-brand-700' : 'bg-gray-50 text-gray-700 active:bg-gray-100'
+                    }`
+                  }
+                >
+                  <item.icon className="w-6 h-6" />
+                  {item.label}
+                </NavLink>
+              ))}
+            </nav>
+            <button
+              type="button"
+              onClick={logout}
+              className="mt-2 mx-4 w-[calc(100%-2rem)] flex items-center justify-center gap-2 rounded-xl py-3 text-sm text-gray-600 border border-gray-200"
+            >
+              <LogOut className="w-4 h-4" />
+              Cerrar sesión
+            </button>
+          </div>
+        </div>
+      )}
 
       <TransactionFormModal
         open={newTxOpen}
@@ -138,7 +215,7 @@ function TabBarItem({
       to={to}
       end={end}
       className={({ isActive }) =>
-        `flex flex-col items-center gap-0.5 text-[10px] font-medium px-3 py-1 ${
+        `flex flex-col items-center gap-0.5 text-[11px] font-medium py-1 ${
           isActive ? 'text-brand-700' : 'text-gray-500'
         }`
       }

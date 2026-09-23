@@ -7,7 +7,7 @@ import { formatCurrency } from '@/lib/format'
  * Aqua, amarillo y magenta tienen contraste < 3:1: cada gráfico ofrece "Ver tabla".
  */
 export const SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4'] as const
-/** Gris neutro para "Otros": no compite con las series con identidad. */
+/** Gris neutro para "Resto": no compite con las series con identidad. */
 export const OTHER = '#9a9893'
 
 export const AXIS_TICK = { fill: '#6b7280', fontSize: 11 }

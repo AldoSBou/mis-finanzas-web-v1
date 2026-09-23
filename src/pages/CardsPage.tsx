@@ -93,33 +93,40 @@ function CardPanel({ card: c }: { card: CardSummary }) {
   const s = c.latestStatement
   const unpaid = s && s.status !== 'PAID' ? parseFloat(s.remaining).toFixed(2) : undefined
 
+  const actions = (
+    <>
+      <button type="button" onClick={() => setPaying(true)} className="btn-primary text-sm">
+        <Wallet className="w-4 h-4 mr-1" />
+        Pagar
+      </button>
+      <button type="button" onClick={() => setStatementOpen(true)} className="btn-secondary text-sm">
+        <FileText className="w-4 h-4 mr-1" />
+        Estado de cuenta
+      </button>
+    </>
+  )
+
   return (
     <section className="card">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
           <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: c.color ?? '#6B6B6B' }} />
           <h2 className="font-semibold truncate">{c.name}</h2>
           <span className="text-xs text-gray-500">{c.currency}</span>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => setPaying(true)} className="btn-primary text-sm">
-            <Wallet className="w-4 h-4 mr-1" />
-            Pagar
-          </button>
-          <button type="button" onClick={() => setStatementOpen(true)} className="btn-secondary text-sm">
-            <FileText className="w-4 h-4 mr-1" />
-            Estado de cuenta
-          </button>
+        <div className="flex gap-2 shrink-0">
+          <div className="hidden sm:flex gap-2">{actions}</div>
           <button
             type="button"
             onClick={() => setEditing(accounts.find((a) => a.id === c.accountId) ?? null)}
-            className="btn-secondary text-sm"
+            className="btn-secondary text-sm px-3"
             aria-label={`Editar ${c.name}`}
           >
             <Pencil className="w-4 h-4" />
           </button>
         </div>
       </div>
+      <div className="grid grid-cols-2 gap-2 mt-3 sm:hidden">{actions}</div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
         {/* Deuda y línea */}

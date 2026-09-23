@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { ArrowRightLeft, Download, Pencil, Repeat, Search, Trash2 } from 'lucide-react'
+import { ArrowRightLeft, Download, Pencil, Repeat, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
 import { accountsApi, categoriesApi, transactionsApi } from '@/api/services'
 import { queryKeys } from '@/lib/query-keys'
-import { currentPeriod, formatCurrency, periodLabel } from '@/lib/format'
+import { currentPeriod, formatCurrency, periodLabel, shortDate } from '@/lib/format'
 import { EmptyState, ErrorState, Loading } from '@/components/ui/States'
 import { PeriodSelector } from '@/components/ui/PeriodSelector'
 import { TransactionFormModal } from '@/features/transactions/TransactionFormModal'
@@ -28,6 +28,8 @@ export function TransactionsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const accountParam = searchParams.get('cuenta')
   const accountId = accountParam ? Number(accountParam) : undefined
+  // Móvil: los filtros se pliegan (abiertos si se llega filtrando por cuenta)
+  const [filtersOpen, setFiltersOpen] = useState(!!accountParam)
 
   // Buscar mientras se escribe, sin una petición por tecla
   useEffect(() => {
@@ -46,6 +48,7 @@ export function TransactionsPage() {
     q: q || undefined,
   }
   const filtering = !!(q || type || categoryId || accountId)
+  const activeFilters = [type, categoryId, accountId].filter(Boolean).length
 
   const { data: accounts = [] } = useQuery({
     queryKey: queryKeys.accounts.list(false),
@@ -148,7 +151,7 @@ export function TransactionsPage() {
             type="button"
             onClick={() => exportMutation.mutate()}
             disabled={exportMutation.isPending}
-            className="btn-secondary py-1.5"
+            className="hidden md:inline-flex btn-secondary py-1.5"
             title="Descargar en CSV los movimientos con estos filtros"
           >
             <Download className="w-4 h-4 mr-1" />
@@ -157,19 +160,41 @@ export function TransactionsPage() {
         </div>
       </header>
 
-      {/* Filtros */}
-      <div className="flex flex-wrap items-center gap-2 mb-4">
-        <div className="relative flex-1 min-w-[180px]">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="search"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Buscar en la descripción..."
-            className="input pl-9 py-1.5"
-            aria-label="Buscar"
-          />
+      {/* Filtros: en móvil, búsqueda siempre visible y el resto plegable */}
+      <div className="flex flex-col md:flex-row md:flex-wrap md:items-center gap-2 mb-4">
+        <div className="flex gap-2 md:flex-1 md:min-w-[180px]">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="search"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Buscar en la descripción..."
+              className="input pl-9 py-1.5"
+              aria-label="Buscar"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => setFiltersOpen((o) => !o)}
+            className={`md:hidden btn-secondary px-3 py-1.5 ${activeFilters ? 'border-brand-500 text-brand-700' : ''}`}
+            aria-expanded={filtersOpen}
+            aria-label="Filtros"
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+            {activeFilters > 0 && <span className="ml-1 text-xs">{activeFilters}</span>}
+          </button>
+          <button
+            type="button"
+            onClick={() => exportMutation.mutate()}
+            disabled={exportMutation.isPending}
+            className="md:hidden btn-secondary px-3 py-1.5"
+            aria-label="Exportar CSV"
+          >
+            <Download className="w-4 h-4" />
+          </button>
         </div>
+        <div className={`${filtersOpen ? 'grid' : 'hidden'} grid-cols-2 gap-2 md:contents`}>
         <select
           value={type}
           onChange={(e) => {
@@ -177,7 +202,7 @@ export function TransactionsPage() {
             setCategoryId('')
             setPage(0)
           }}
-          className="input w-auto py-1.5"
+          className="input md:w-auto py-1.5"
           aria-label="Filtrar por tipo"
         >
           <option value="">Todos los tipos</option>
@@ -192,7 +217,7 @@ export function TransactionsPage() {
               setCategoryId(e.target.value)
               setPage(0)
             }}
-            className="input w-auto py-1.5"
+            className="input md:w-auto py-1.5"
             aria-label="Filtrar por categoría"
           >
             <option value="">Todas las categorías</option>
@@ -206,7 +231,7 @@ export function TransactionsPage() {
         <select
           value={accountParam ?? ''}
           onChange={(e) => changeAccount(e.target.value)}
-          className="input w-auto py-1.5"
+          className="input md:w-auto py-1.5 col-span-2 md:col-auto"
           aria-label="Filtrar por cuenta"
         >
           <option value="">Todas las cuentas</option>
@@ -216,8 +241,13 @@ export function TransactionsPage() {
             </option>
           ))}
         </select>
+        </div>
         {filtering && (
-          <button type="button" onClick={clearFilters} className="text-sm text-brand-700 hover:underline">
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="text-sm text-brand-700 hover:underline self-start md:self-auto"
+          >
             Limpiar filtros
           </button>
         )}
@@ -337,7 +367,8 @@ function TransactionRow({
           {tx.categoryName?.charAt(0).toUpperCase() ?? '?'}
         </div>
       )}
-      <div className="flex-1 min-w-0">
+      {/* Toda la fila abre la edición (en móvil no hay lápiz) */}
+      <button type="button" onClick={onEdit} className="flex-1 min-w-0 text-left">
         <p className="text-sm font-medium truncate flex items-center gap-1">
           {title}
           {tx.recurringId && (
@@ -345,19 +376,22 @@ function TransactionRow({
           )}
         </p>
         <p className="text-xs text-gray-500 truncate">{subtitle}</p>
-      </div>
-      <div className="text-right">
+      </button>
+      <div className="text-right shrink-0">
         <p className={`text-sm font-medium tabular-nums ${color}`}>
           {sign}
           {shown}
         </p>
-        <p className="text-xs text-gray-500">{tx.transactionDate}</p>
+        <p className="text-xs text-gray-500">
+          <span className="sm:hidden">{shortDate(tx.transactionDate)}</span>
+          <span className="hidden sm:inline">{tx.transactionDate}</span>
+        </p>
       </div>
-      <div className="flex gap-1">
+      <div className="flex gap-1 shrink-0">
         <button
           type="button"
           onClick={onEdit}
-          className="p-1.5 hover:bg-gray-100 rounded text-gray-500"
+          className="hidden md:inline-flex p-1.5 hover:bg-gray-100 rounded text-gray-500"
           aria-label="Editar"
         >
           <Pencil className="w-4 h-4" />

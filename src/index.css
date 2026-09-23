@@ -14,7 +14,11 @@
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none;
+    @apply inline-flex items-center justify-center whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none;
+  }
+  /* Los iconos no se encogen cuando el texto del botón ocupa todo el ancho */
+  .btn > svg {
+    @apply shrink-0;
   }
   .btn-primary {
     @apply btn bg-brand-500 text-white hover:bg-brand-600 focus:ring-brand-500;
@@ -23,7 +27,8 @@
     @apply btn bg-white text-gray-900 border border-gray-300 hover:bg-gray-50 focus:ring-gray-400;
   }
   .input {
-    @apply w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500;
+    /* 16px en móvil: con menos, iOS hace zoom al enfocar el campo */
+    @apply w-full rounded-md border border-gray-300 px-3 py-2 text-base md:text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500;
   }
   .label {
     @apply block text-xs font-medium uppercase tracking-wide text-gray-500 mb-1;
