@@ -354,6 +354,7 @@ export function TransactionFormModal({
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['overview'] })
       queryClient.invalidateQueries({ queryKey: ['cashflow'] })
+      queryClient.invalidateQueries({ queryKey: ['liquidity'] })
       onSuccess?.()
       onClose()
     },

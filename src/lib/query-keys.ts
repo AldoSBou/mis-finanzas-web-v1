@@ -55,6 +55,9 @@ export const queryKeys = {
   overview: {
     all: ['overview'] as const,
   },
+  liquidity: {
+    with: (daily: string) => ['liquidity', daily] as const,
+  },
   cashflow: {
     range: (until: string, months: number) => ['cashflow', until, months] as const,
   },

@@ -37,6 +37,49 @@ export interface ProfileRequest {
   periodStartDay?: number
 }
 
+// ---------- Liquidez ----------
+
+export interface LiquidAccount {
+  id: number
+  name: string
+  currency: string
+  balance: string
+  /** null si no hay tipo de cambio conocido (queda fuera del cálculo) */
+  balanceBase: string | null
+  rate: string | null
+}
+
+export interface LiquidityEvent {
+  date: string
+  kind: 'RECURRING' | 'COMMITMENT' | 'CARD'
+  id: number
+  name: string
+  /** Con signo */
+  amount: string
+}
+
+export interface LiquidityDay {
+  date: string
+  balance: string
+}
+
+/** Efectivo proyectado día a día hasta el fin del periodo siguiente. Montos en moneda base. */
+export interface LiquidityResponse {
+  today: string
+  periodEnd: string
+  horizonEnd: string
+  baseCurrency: string
+  accounts: LiquidAccount[]
+  opening: string
+  dailyVariableEstimated: string
+  dailyVariable: string
+  events: LiquidityEvent[]
+  days: LiquidityDay[]
+  lowest: LiquidityDay
+  firstNegative: string | null
+  endBalance: string
+}
+
 // ---------- Flujo de caja ----------
 
 /** Una fila de la grilla: categoría o cuenta de ahorro, con un monto por mes. */
@@ -286,6 +329,8 @@ export interface RegisterOccurrenceRequest {
 export interface UpcomingItem {
   recurringId: number
   type: TransactionType
+  accountId: number
+  toAccountId: number | null
   categoryId: number | null
   description: string | null
   categoryName: string | null

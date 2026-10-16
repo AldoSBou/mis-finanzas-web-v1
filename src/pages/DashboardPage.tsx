@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { Settings2 } from 'lucide-react'
 import { Link } from 'react-router'
 import { accountsApi, dashboardApi, overviewApi } from '@/api/services'
@@ -21,6 +21,10 @@ import { CardsDueCard } from '@/features/cards/CardsDueCard'
 import { RemainingCard } from '@/features/overview/RemainingCard'
 import { CategoriesCard } from '@/features/overview/CategoriesCard'
 import { CommitmentsCard } from '@/features/commitments/CommitmentsCard'
+
+const LiquidityCard = lazy(() =>
+  import('@/features/liquidity/LiquidityCard').then((m) => ({ default: m.LiquidityCard })),
+)
 
 export function DashboardPage() {
   const [period, setPeriod] = useState(currentPeriod())
@@ -66,6 +70,9 @@ export function DashboardPage() {
             <CategoriesCard overview={overview} />
           </div>
           <CommitmentsCard overview={overview} />
+          <Suspense fallback={<Loading />}>
+            <LiquidityCard />
+          </Suspense>
         </div>
       )}
 

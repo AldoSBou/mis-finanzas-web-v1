@@ -12,6 +12,7 @@ import type {
   Contribution,
   ContributionRequest,
   CashflowResponse,
+  LiquidityResponse,
   CategoryBudgetSummary,
   CategoryRequest,
   Commitment,
@@ -225,6 +226,11 @@ export const reportsApi = {
 export const cashflowApi = {
   get: (until: string, months: number) =>
     api.get<CashflowResponse>('/cashflow', { params: { until, months } }).then((r) => r.data),
+}
+
+export const liquidityApi = {
+  get: (daily?: string) =>
+    api.get<LiquidityResponse>('/liquidity', { params: daily ? { daily } : {} }).then((r) => r.data),
 }
 
 export const overviewApi = {

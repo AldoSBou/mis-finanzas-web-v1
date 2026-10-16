@@ -17,6 +17,7 @@ export function useInvalidateCommitments() {
   return () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.commitments.all })
     queryClient.invalidateQueries({ queryKey: queryKeys.overview.all })
+    queryClient.invalidateQueries({ queryKey: ['liquidity'] })
     queryClient.invalidateQueries({ queryKey: ['dashboard'] })
     queryClient.invalidateQueries({ queryKey: queryKeys.transactions.all })
     queryClient.invalidateQueries({ queryKey: queryKeys.accounts.all })
