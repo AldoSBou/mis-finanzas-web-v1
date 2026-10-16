@@ -5,6 +5,7 @@ export type TransactionType = 'INCOME' | 'EXPENSE' | 'TRANSFER'
 export type CategoryType = 'INCOME' | 'EXPENSE'
 
 export type AccountType =
+  | 'GENERAL'
   | 'CASH'
   | 'BANK'
   | 'CREDIT_CARD'

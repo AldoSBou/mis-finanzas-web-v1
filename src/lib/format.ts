@@ -78,6 +78,7 @@ export function bucketColor(bucket: string): string {
 }
 
 const ACCOUNT_TYPE_LABELS: Record<string, string> = {
+  GENERAL: 'General',
   CASH: 'Efectivo',
   BANK: 'Cuenta bancaria',
   CREDIT_CARD: 'Tarjeta de crédito',
@@ -87,7 +88,7 @@ const ACCOUNT_TYPE_LABELS: Record<string, string> = {
 }
 
 export const ACCOUNT_TYPES = Object.keys(ACCOUNT_TYPE_LABELS) as Array<
-  'CASH' | 'BANK' | 'CREDIT_CARD' | 'EWALLET' | 'SAVINGS' | 'INVESTMENT'
+  'GENERAL' | 'CASH' | 'BANK' | 'CREDIT_CARD' | 'EWALLET' | 'SAVINGS' | 'INVESTMENT'
 >
 
 export function accountTypeLabel(type: string): string {

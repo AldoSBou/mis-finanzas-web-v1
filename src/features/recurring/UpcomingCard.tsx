@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { recurringApi } from '@/api/services'
 import { Modal } from '@/components/ui/Modal'
+import { MoneyInput } from '@/components/ui/MoneyInput'
 import { ErrorState } from '@/components/ui/States'
 import { getErrorMessage } from '@/lib/api-client'
 import { queryKeys } from '@/lib/query-keys'
@@ -157,16 +158,7 @@ function RegisterModal({
         {mutation.error && <ErrorState message={getErrorMessage(mutation.error)} />}
         <div>
           <label className="label">Monto ({currencySymbol(item.currency)})</label>
-          <input
-            type="number"
-            step="0.01"
-            min="0.01"
-            inputMode="decimal"
-            required
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            className="input text-2xl font-semibold"
-          />
+          <MoneyInput required value={amount} onChange={setAmount} className="input text-2xl font-semibold" />
           <p className="text-xs text-gray-500 mt-1">Ajústalo si el monto real fue distinto.</p>
         </div>
         <div>

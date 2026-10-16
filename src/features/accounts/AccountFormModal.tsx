@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { accountsApi } from '@/api/services'
 import { Modal } from '@/components/ui/Modal'
+import { MoneyInput } from '@/components/ui/MoneyInput'
 import { ErrorState } from '@/components/ui/States'
 import { useAuth } from '@/features/auth/AuthProvider'
 import { getErrorMessage } from '@/lib/api-client'
@@ -39,7 +40,7 @@ export function AccountFormModal({ open, onClose, initial, defaultType = 'BANK' 
   const { user } = useAuth()
   const [error, setError] = useState<string | null>(null)
 
-  const { register, handleSubmit, watch, reset, setValue } = useForm<FormValues>()
+  const { register, control, handleSubmit, watch, reset, setValue } = useForm<FormValues>()
   const type = watch('type')
   const currency = watch('currency')
   const color = watch('color')
@@ -53,7 +54,7 @@ export function AccountFormModal({ open, onClose, initial, defaultType = 'BANK' 
         name: initial.name,
         type: initial.type,
         currency: initial.currency,
-        initialBalance: String(initial.type === 'CREDIT_CARD' ? -balance : balance),
+        initialBalance: balance === 0 ? '' : (initial.type === 'CREDIT_CARD' ? -balance : balance).toFixed(2),
         color: initial.color ?? COLORS[0],
         creditLimit: initial.creditLimit ?? '',
         statementDay: initial.statementDay ? String(initial.statementDay) : '',
@@ -64,7 +65,7 @@ export function AccountFormModal({ open, onClose, initial, defaultType = 'BANK' 
         name: '',
         type: defaultType,
         currency: user?.currencyDefault ?? 'PEN',
-        initialBalance: '0',
+        initialBalance: '',
         color: COLORS[2],
         creditLimit: '',
         statementDay: '',
@@ -141,18 +142,17 @@ export function AccountFormModal({ open, onClose, initial, defaultType = 'BANK' 
           <label className="label">
             {isCard ? 'Deuda actual' : 'Saldo actual'} ({currencySymbol(currency || 'PEN')})
           </label>
-          <input
-            type="number"
-            step="0.01"
-            inputMode="decimal"
-            {...register('initialBalance')}
-            className="input"
-            placeholder="0.00"
+          <Controller
+            name="initialBalance"
+            control={control}
+            render={({ field }) => (
+              <MoneyInput value={field.value} onChange={field.onChange} allowNegative={!isCard} />
+            )}
           />
           <p className="text-xs text-gray-500 mt-1">
             {isCard
-              ? 'Lo que debes hoy en la tarjeta. Las compras suman deuda; los pagos se registran como transferencia hacia la tarjeta.'
-              : 'Lo que tienes hoy. Desde aquí se suman los movimientos que registres.'}
+              ? 'Lo que debes hoy en la tarjeta, o 0 para controlarla desde ahora. Las compras suman deuda; los pagos se registran con "Mover dinero" hacia la tarjeta.'
+              : 'Lo que tienes hoy, o 0 para empezar desde ahora. Desde aquí se suman los movimientos que registres.'}
           </p>
         </div>
 
@@ -160,14 +160,10 @@ export function AccountFormModal({ open, onClose, initial, defaultType = 'BANK' 
           <div className="rounded-md border border-gray-200 p-3 space-y-3">
             <div>
               <label className="label">Línea de crédito ({currencySymbol(currency || 'PEN')})</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0.01"
-                inputMode="decimal"
-                {...register('creditLimit')}
-                className="input"
-                placeholder="Opcional"
+              <Controller
+                name="creditLimit"
+                control={control}
+                render={({ field }) => <MoneyInput value={field.value} onChange={field.onChange} placeholder="Opcional" />}
               />
             </div>
             <div className="grid grid-cols-2 gap-3">

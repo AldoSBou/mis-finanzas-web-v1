@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { accountsApi, goalsApi } from '@/api/services'
 import { Modal } from '@/components/ui/Modal'
+import { MoneyInput } from '@/components/ui/MoneyInput'
 import { ErrorState } from '@/components/ui/States'
 import { getErrorMessage } from '@/lib/api-client'
 import { queryKeys } from '@/lib/query-keys'
@@ -91,16 +92,7 @@ export function GoalFormModal({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="label">Objetivo ({currencySymbol(account?.currency ?? 'PEN')})</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0.01"
-              inputMode="decimal"
-              value={target}
-              onChange={(e) => setTarget(e.target.value)}
-              required
-              className="input"
-            />
+            <MoneyInput value={target} onChange={setTarget} required />
           </div>
           <div>
             <label className="label">Para cuándo (opcional)</label>

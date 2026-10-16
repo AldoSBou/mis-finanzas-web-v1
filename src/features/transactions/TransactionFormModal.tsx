@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { accountsApi, categoriesApi, recurringApi, transactionsApi } from '@/api/services'
 import { Modal } from '@/components/ui/Modal'
+import { MoneyInput } from '@/components/ui/MoneyInput'
 import { ErrorState } from '@/components/ui/States'
 import { useAuth } from '@/features/auth/AuthProvider'
 import { getErrorMessage } from '@/lib/api-client'
@@ -47,6 +48,8 @@ interface Props {
   recurring?: Recurring | null
   /** Crear un recurrente nuevo (la repetición es obligatoria) */
   recurringMode?: boolean
+  /** Mover dinero entre cuentas (la transferencia no se ofrece al registrar un gasto) */
+  transferMode?: boolean
   /** Valores iniciales de un movimiento nuevo (p. ej. pagar una tarjeta) */
   preset?: {
     type?: TransactionType
@@ -91,10 +94,10 @@ const EMPTY: FormValues = {
   installmentAmount: '',
 }
 
+/** Al registrar solo hay gasto o ingreso; mover dinero entre cuentas es otra acción. */
 const TYPE_OPTIONS: Array<{ value: TransactionType; label: string }> = [
   { value: 'EXPENSE', label: 'Gasto' },
   { value: 'INCOME', label: 'Ingreso' },
-  { value: 'TRANSFER', label: 'Transferencia' },
 ]
 
 export function TransactionFormModal({
@@ -104,6 +107,7 @@ export function TransactionFormModal({
   initial,
   recurring,
   recurringMode,
+  transferMode,
   preset,
 }: Props) {
   const queryClient = useQueryClient()
@@ -111,7 +115,7 @@ export function TransactionFormModal({
   const baseCurrency = user?.currencyDefault ?? 'PEN'
   const [error, setError] = useState<string | null>(null)
 
-  const { register, handleSubmit, watch, reset, setValue, getValues, formState: { errors } } =
+  const { register, control, handleSubmit, watch, reset, setValue, getValues, formState: { errors } } =
     useForm<FormValues>({ defaultValues: EMPTY })
 
   const type = watch('type')
@@ -125,6 +129,9 @@ export function TransactionFormModal({
   const installmentAmount = watch('installmentAmount')
   const isTransfer = type === 'TRANSFER'
   const isRecurringForm = !!recurring || !!recurringMode
+  // El tipo solo se elige entre gasto e ingreso; una transferencia (mover dinero, pagar
+  // una tarjeta, editar una existente) llega ya decidida y no muestra el selector.
+  const canPickType = !isTransfer
   const repeats = isRecurringForm || !!frequency
 
   const { data: categories = [] } = useQuery({
@@ -154,6 +161,8 @@ export function TransactionFormModal({
   )
 
   const from = accounts.find((a) => String(a.id) === accountId)
+  // Con una sola cuenta no hay nada que elegir: se asigna sola y no se muestra
+  const singleAccount = accounts.length === 1 && !isTransfer
   const to = accounts.find((a) => String(a.id) === toAccountId)
   const filteredCategories = useMemo(
     () => categories.filter((c) => c.type === type),
@@ -218,7 +227,7 @@ export function TransactionFormModal({
         ...EMPTY,
         transactionDate: todayIso(),
         frequency: recurringMode ? 'MONTHLY' : '',
-        type: preset?.type ?? EMPTY.type,
+        type: preset?.type ?? (transferMode ? 'TRANSFER' : EMPTY.type),
         toAccountId: preset?.toAccountId ? String(preset.toAccountId) : '',
         amount: preset?.amount ?? '',
         description: preset?.description ?? '',
@@ -226,7 +235,7 @@ export function TransactionFormModal({
     }
     setError(null)
     // `preset` se lee solo al abrir: un objeto nuevo en cada render no debe reiniciar el formulario
-  }, [initial, recurring, recurringMode, open, reset, baseCurrency])
+  }, [initial, recurring, recurringMode, transferMode, open, reset, baseCurrency])
 
   // Al editar una compra en cuotas, carga su plan (la cuota solo si no es monto / cuotas)
   useEffect(() => {
@@ -393,15 +402,20 @@ export function TransactionFormModal({
           : recurringMode
             ? 'Nuevo recurrente'
             : initial
-              ? 'Editar movimiento'
-              : 'Nuevo movimiento'
+              ? isTransfer
+                ? 'Editar movimiento entre cuentas'
+                : 'Editar movimiento'
+              : isTransfer
+                ? 'Mover dinero'
+                : 'Nuevo movimiento'
       }
     >
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         {error && <ErrorState message={error} />}
 
         {/* Toggle tipo */}
-        <div className="grid grid-cols-3 gap-1 bg-gray-100 rounded-md p-1">
+        {canPickType && (
+        <div className="grid grid-cols-2 gap-1 bg-gray-100 rounded-md p-1">
           {TYPE_OPTIONS.map((opt) => (
             <button
               key={opt.value}
@@ -415,22 +429,28 @@ export function TransactionFormModal({
             </button>
           ))}
         </div>
+        )}
 
         <div>
           <label className="label">Monto ({currencySymbol(from?.currency ?? baseCurrency)})</label>
-          <input
-            type="number"
-            step="0.01"
-            min="0.01"
-            inputMode="decimal"
-            {...register('amount', { required: 'Monto requerido' })}
-            className="input text-2xl font-semibold"
-            placeholder="0.00"
+          <Controller
+            name="amount"
+            control={control}
+            rules={{ required: 'Monto requerido' }}
+            render={({ field }) => (
+              <MoneyInput
+                value={field.value}
+                onChange={field.onChange}
+                onBlur={field.onBlur}
+                className="input text-2xl font-semibold"
+                autoFocus={!initial}
+              />
+            )}
           />
           {errors.amount && <p className="text-xs text-red-600 mt-1">{errors.amount.message}</p>}
         </div>
 
-        <div className={isTransfer ? 'grid grid-cols-2 gap-3' : ''}>
+        <div className={isTransfer ? 'grid grid-cols-2 gap-3' : singleAccount ? 'hidden' : ''}>
           <div>
             <label className="label">{isTransfer ? 'Desde' : 'Cuenta'}</label>
             <select {...register('accountId')} className="input">
@@ -462,14 +482,10 @@ export function TransactionFormModal({
         {differentCurrencies && (
           <div>
             <label className="label">Monto recibido ({currencySymbol(to!.currency)})</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0.01"
-              inputMode="decimal"
-              {...register('toAmount')}
-              className="input"
-              placeholder="0.00"
+            <Controller
+              name="toAmount"
+              control={control}
+              render={({ field }) => <MoneyInput value={field.value} onChange={field.onChange} />}
             />
           </div>
         )}
@@ -549,14 +565,12 @@ export function TransactionFormModal({
               {nInstallments >= 2 && (
                 <div>
                   <label className="label">Cuota ({currencySymbol(from!.currency)})</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    inputMode="decimal"
-                    {...register('installmentAmount')}
-                    className="input"
-                    placeholder={evenInstallment ?? '0.00'}
+                  <Controller
+                    name="installmentAmount"
+                    control={control}
+                    render={({ field }) => (
+                      <MoneyInput value={field.value} onChange={field.onChange} placeholder={evenInstallment ?? '0.00'} />
+                    )}
                   />
                 </div>
               )}
@@ -570,6 +584,12 @@ export function TransactionFormModal({
                 : '1 = una sola cuota. Si la pagas en cuotas, indica cuántas.'}
             </p>
           </div>
+        )}
+
+        {isTransfer && accounts.length < 2 && (
+          <p className="text-xs text-amber-700 bg-amber-50 rounded px-3 py-2">
+            Para mover dinero necesitas al menos dos cuentas. Créalas en Cuentas.
+          </p>
         )}
 
         {isTransfer && to && to.type === 'CREDIT_CARD' && (

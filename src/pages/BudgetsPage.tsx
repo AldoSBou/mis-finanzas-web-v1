@@ -1,3 +1,4 @@
+import { MoneyInput } from '@/components/ui/MoneyInput'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
 import { categoryBudgetsApi } from '@/api/services'
@@ -156,15 +157,11 @@ function BudgetRow({
       {editing && (
         <form onSubmit={submit} className="flex flex-wrap items-center gap-2 mt-2">
           <span className="text-sm text-gray-500">{currencySymbol(currency)}</span>
-          <input
-            type="number"
-            step="0.01"
-            min="0.01"
-            inputMode="decimal"
+          <MoneyInput
             required
             autoFocus
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={setAmount}
             className="input w-32 py-1.5"
             placeholder="Límite al mes"
           />

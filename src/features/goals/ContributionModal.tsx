@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { accountsApi, goalsApi, transactionsApi } from '@/api/services'
 import { Modal } from '@/components/ui/Modal'
+import { MoneyInput } from '@/components/ui/MoneyInput'
 import { ErrorState } from '@/components/ui/States'
 import { useAuth } from '@/features/auth/AuthProvider'
 import { getErrorMessage } from '@/lib/api-client'
@@ -101,17 +102,7 @@ export function ContributionModal({
         {mutation.error && <ErrorState message={getErrorMessage(mutation.error)} />}
         <div>
           <label className="label">Monto ({currencySymbol(currency)})</label>
-          <input
-            type="number"
-            step="0.01"
-            min="0.01"
-            inputMode="decimal"
-            required
-            autoFocus
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            className="input text-2xl font-semibold"
-          />
+          <MoneyInput required autoFocus value={amount} onChange={setAmount} className="input text-2xl font-semibold" />
           <p className="text-xs text-gray-500 mt-1">
             {isIn
               ? `Faltan ${fmt(goal.remaining)} para la meta.`

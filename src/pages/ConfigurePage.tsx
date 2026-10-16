@@ -1,3 +1,4 @@
+import { MoneyInput } from '@/components/ui/MoneyInput'
 import { useEffect, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check } from 'lucide-react'
@@ -102,16 +103,12 @@ export function ConfigurePage() {
             <label className="label" htmlFor="expectedIncome">
               Ingreso esperado del mes (S/)
             </label>
-            <input
+            <MoneyInput
               id="expectedIncome"
-              type="number"
-              step="0.01"
-              min="0"
               required
               className="input text-2xl font-semibold"
-              placeholder="0.00"
               value={expectedIncome}
-              onChange={(e) => setExpectedIncome(e.target.value)}
+              onChange={setExpectedIncome}
             />
             <p className="text-xs text-gray-500 mt-2">
               Esto se usa como base de cálculo para la asignación. Si tu sueldo aún no cae

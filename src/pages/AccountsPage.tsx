@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { Archive, CreditCard, Pencil, Plus } from 'lucide-react'
+import { Archive, ArrowRightLeft, CreditCard, Pencil, Plus } from 'lucide-react'
 import { accountsApi } from '@/api/services'
 import { AccountFormModal } from '@/features/accounts/AccountFormModal'
+import { TransactionFormModal } from '@/features/transactions/TransactionFormModal'
 import { EmptyState, ErrorState, Loading } from '@/components/ui/States'
 import { getErrorMessage } from '@/lib/api-client'
 import { queryKeys } from '@/lib/query-keys'
@@ -14,6 +15,7 @@ export function AccountsPage() {
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState<Account | null>(null)
   const [creating, setCreating] = useState(false)
+  const [moving, setMoving] = useState(false)
 
   const { data: accounts, isLoading, error } = useQuery({
     queryKey: queryKeys.accounts.list(false),
@@ -50,10 +52,18 @@ export function AccountsPage() {
           <h1 className="text-2xl font-semibold">Cuentas</h1>
           <p className="text-sm text-gray-500">Dónde está tu dinero</p>
         </div>
-        <button type="button" onClick={() => setCreating(true)} className="btn-primary">
-          <Plus className="w-4 h-4 mr-1" />
-          Nueva cuenta
-        </button>
+        <div className="flex gap-2">
+          {accounts && accounts.length >= 2 && (
+            <button type="button" onClick={() => setMoving(true)} className="btn-secondary">
+              <ArrowRightLeft className="w-4 h-4 mr-1" />
+              Mover dinero
+            </button>
+          )}
+          <button type="button" onClick={() => setCreating(true)} className="btn-primary">
+            <Plus className="w-4 h-4 mr-1" />
+            Nueva cuenta
+          </button>
+        </div>
       </header>
 
       {isLoading && <Loading />}
@@ -95,6 +105,10 @@ export function AccountsPage() {
           </div>
           <p className="text-xs text-gray-400 mt-3">
             Toca una cuenta para ver sus movimientos del mes.
+            {accounts.length === 1 &&
+              ' Si quieres separar tu dinero (banco, Yape, tarjeta, ahorros), crea más cuentas.'}
+            {accounts.length >= 2 &&
+              ' Pagar una tarjeta, pasar plata al ahorro o sacar efectivo es "Mover dinero": no cuenta como gasto.'}
           </p>
           {accounts.some((a) => a.type === 'CREDIT_CARD') && (
             <Link
@@ -116,6 +130,7 @@ export function AccountsPage() {
         }}
         initial={editing}
       />
+      <TransactionFormModal open={moving} onClose={() => setMoving(false)} transferMode />
     </div>
   )
 }

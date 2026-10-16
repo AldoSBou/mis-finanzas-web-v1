@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { cardsApi } from '@/api/services'
 import { Modal } from '@/components/ui/Modal'
+import { MoneyInput } from '@/components/ui/MoneyInput'
 import { ErrorState } from '@/components/ui/States'
 import { getErrorMessage } from '@/lib/api-client'
 import { queryKeys } from '@/lib/query-keys'
@@ -33,7 +34,7 @@ interface Props {
 export function StatementFormModal({ open, onClose, accountId, cardName, currency, initial, note, onSaved }: Props) {
   const queryClient = useQueryClient()
   const [error, setError] = useState<string | null>(null)
-  const { register, handleSubmit, reset } = useForm<FormValues>()
+  const { register, control, handleSubmit, reset } = useForm<FormValues>()
 
   useEffect(() => {
     if (!open) return
@@ -88,26 +89,19 @@ export function StatementFormModal({ open, onClose, accountId, cardName, currenc
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="label">Pago del mes ({symbol})</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              inputMode="decimal"
-              {...register('totalDue', { required: true })}
-              className="input"
-              placeholder="0.00"
+            <Controller
+              name="totalDue"
+              control={control}
+              rules={{ required: true }}
+              render={({ field }) => <MoneyInput value={field.value} onChange={field.onChange} required />}
             />
           </div>
           <div>
             <label className="label">Pago mínimo ({symbol})</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              inputMode="decimal"
-              {...register('minimumDue')}
-              className="input"
-              placeholder="Opcional"
+            <Controller
+              name="minimumDue"
+              control={control}
+              render={({ field }) => <MoneyInput value={field.value} onChange={field.onChange} placeholder="Opcional" />}
             />
           </div>
         </div>
