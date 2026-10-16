@@ -27,6 +27,91 @@ export interface User {
   email: string
   displayName: string | null
   currencyDefault: string
+  /** Día en que empieza "tu mes" (día de pago); null = mes calendario */
+  periodStartDay: number | null
+}
+
+export interface ProfileRequest {
+  displayName?: string
+  /** 0 vuelve al mes calendario */
+  periodStartDay?: number
+}
+
+// ---------- Compromisos y "te quedan" ----------
+
+export type CommitmentStatus = 'PENDING' | 'PAID' | 'SKIPPED'
+
+/** Dinero que vas a tener que soltar en una fecha. Se resta de "te quedan" hasta que se paga. */
+export interface Commitment {
+  id: number
+  name: string
+  amount: string
+  currency: string
+  dueDate: string
+  overdue: boolean
+  categoryId: number | null
+  categoryName: string | null
+  accountId: number | null
+  accountName: string | null
+  /** Si se paga a una cuenta propia (deuda de tarjeta), el pago es "mover dinero" */
+  toAccountId: number | null
+  toAccountName: string | null
+  note: string | null
+  status: CommitmentStatus
+  paidTransactionId: number | null
+  paidAt: string | null
+}
+
+export interface CommitmentRequest {
+  name: string
+  amount: string
+  dueDate: string
+  categoryId?: number | null
+  accountId?: number | null
+  toAccountId?: number | null
+  note?: string
+}
+
+export interface PayCommitmentRequest {
+  accountId?: number
+  amount?: string
+  exchangeRate?: string
+  date?: string
+}
+
+export interface PendingItem {
+  kind: 'COMMITMENT' | 'RECURRING'
+  id: number
+  name: string
+  categoryName: string | null
+  amount: string
+  date: string
+  overdue: boolean
+  /** Recurrente automático: se registra solo en la fecha */
+  automatic: boolean
+  /** Transferencia (ahorro o pago a una cuenta propia), no gasto */
+  transfer: boolean
+}
+
+/** "¿Cuánto me queda?" del periodo en curso. Montos en moneda base. */
+export interface OverviewResponse {
+  today: string
+  periodStart: string
+  periodEnd: string
+  daysLeft: number
+  periodStartDay: number | null
+  baseCurrency: string
+  income: string
+  expectedIncome: string
+  spent: string
+  savingsDone: string
+  savingsPending: string
+  pendingTotal: string
+  commitmentsPaid: string
+  remaining: string
+  perDay: string | null
+  pending: PendingItem[]
+  categories: CategoryBudgetItem[]
 }
 
 export interface TokenResponse {

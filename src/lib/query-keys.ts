@@ -52,4 +52,10 @@ export const queryKeys = {
   dashboard: {
     period: (period: string) => ['dashboard', period] as const,
   },
+  overview: {
+    all: ['overview'] as const,
+  },
+  commitments: {
+    all: ['commitments'] as const,
+  },
 }

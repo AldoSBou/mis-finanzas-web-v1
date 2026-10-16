@@ -17,6 +17,7 @@ export function UpcomingCard({ items }: { items: UpcomingItem[] }) {
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    queryClient.invalidateQueries({ queryKey: ['overview'] })
     queryClient.invalidateQueries({ queryKey: queryKeys.transactions.all })
     queryClient.invalidateQueries({ queryKey: queryKeys.accounts.all })
     queryClient.invalidateQueries({ queryKey: queryKeys.recurring.all })

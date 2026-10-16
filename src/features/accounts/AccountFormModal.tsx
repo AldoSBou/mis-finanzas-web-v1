@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { accountsApi } from '@/api/services'
+import { accountsApi, commitmentsApi } from '@/api/services'
 import { Modal } from '@/components/ui/Modal'
 import { MoneyInput } from '@/components/ui/MoneyInput'
 import { ErrorState } from '@/components/ui/States'
@@ -21,6 +21,8 @@ interface FormValues {
   creditLimit: string
   statementDay: string
   dueDay: string
+  /** Tarjeta nueva con deuda: fecha en que hay que pagar esa deuda (crea un compromiso) */
+  debtDueDate: string
 }
 
 interface Props {
@@ -44,7 +46,9 @@ export function AccountFormModal({ open, onClose, initial, defaultType = 'BANK' 
   const type = watch('type')
   const currency = watch('currency')
   const color = watch('color')
+  const initialBalance = watch('initialBalance')
   const isCard = type === 'CREDIT_CARD'
+  const newCardWithDebt = isCard && !initial && parseFloat(initialBalance || '0') > 0
 
   useEffect(() => {
     if (!open) return
@@ -59,6 +63,7 @@ export function AccountFormModal({ open, onClose, initial, defaultType = 'BANK' 
         creditLimit: initial.creditLimit ?? '',
         statementDay: initial.statementDay ? String(initial.statementDay) : '',
         dueDay: initial.dueDay ? String(initial.dueDay) : '',
+        debtDueDate: '',
       })
     } else {
       reset({
@@ -70,6 +75,7 @@ export function AccountFormModal({ open, onClose, initial, defaultType = 'BANK' 
         creditLimit: '',
         statementDay: '',
         dueDay: '',
+        debtDueDate: '',
       })
     }
     setError(null)
@@ -89,11 +95,24 @@ export function AccountFormModal({ open, onClose, initial, defaultType = 'BANK' 
         dueDay: values.dueDay ? Number(values.dueDay) : null,
       }
       if (initial) return accountsApi.update(initial.id, payload)
-      return accountsApi.create(payload)
+      const created = await accountsApi.create(payload)
+      // La deuda con la que llega la tarjeta es un compromiso: se resta de "te quedan"
+      // hasta que se paga, y pagarla es "mover dinero" hacia la tarjeta.
+      if (values.type === 'CREDIT_CARD' && amount > 0 && values.debtDueDate) {
+        await commitmentsApi.create({
+          name: `Deuda ${values.name.trim()}`,
+          amount: amount.toFixed(2),
+          dueDate: values.debtDueDate,
+          toAccountId: created.id,
+        })
+      }
+      return created
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.accounts.all })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['overview'] })
+      queryClient.invalidateQueries({ queryKey: ['commitments'] })
       onClose()
     },
     onError: (err) => setError(getErrorMessage(err)),
@@ -155,6 +174,17 @@ export function AccountFormModal({ open, onClose, initial, defaultType = 'BANK' 
               : 'Lo que tienes hoy, o 0 para empezar desde ahora. Desde aquí se suman los movimientos que registres.'}
           </p>
         </div>
+
+        {newCardWithDebt && (
+          <div>
+            <label className="label">¿Hasta cuándo pagar esa deuda?</label>
+            <input type="date" {...register('debtDueDate')} className="input" />
+            <p className="text-xs text-gray-500 mt-1">
+              Queda como compromiso de pago y se resta de "te quedan" hasta que lo pagues. Si lo dejas
+              vacío, la deuda solo aparece en el saldo de la tarjeta.
+            </p>
+          </div>
+        )}
 
         {isCard && (
           <div className="rounded-md border border-gray-200 p-3 space-y-3">

@@ -13,6 +13,11 @@ import type {
   ContributionRequest,
   CategoryBudgetSummary,
   CategoryRequest,
+  Commitment,
+  CommitmentRequest,
+  CommitmentStatus,
+  OverviewResponse,
+  PayCommitmentRequest,
   DashboardResponse,
   ExchangeRate,
   Goal,
@@ -214,6 +219,23 @@ export const reportsApi = {
     api
       .get<ReportResponse>('/reports', { params: { months, until } })
       .then((r) => r.data),
+}
+
+export const overviewApi = {
+  get: () => api.get<OverviewResponse>('/overview').then((r) => r.data),
+}
+
+export const commitmentsApi = {
+  list: (status?: CommitmentStatus) =>
+    api.get<Commitment[]>('/commitments', { params: status ? { status } : {} }).then((r) => r.data),
+  create: (req: CommitmentRequest) => api.post<Commitment>('/commitments', req).then((r) => r.data),
+  update: (id: number, req: CommitmentRequest) =>
+    api.put<Commitment>(`/commitments/${id}`, req).then((r) => r.data),
+  delete: (id: number) => api.delete<void>(`/commitments/${id}`).then((r) => r.data),
+  pay: (id: number, req: PayCommitmentRequest = {}) =>
+    api.post<Commitment>(`/commitments/${id}/pay`, req).then((r) => r.data),
+  skip: (id: number) => api.post<Commitment>(`/commitments/${id}/skip`).then((r) => r.data),
+  reopen: (id: number) => api.post<Commitment>(`/commitments/${id}/reopen`).then((r) => r.data),
 }
 
 export const dashboardApi = {

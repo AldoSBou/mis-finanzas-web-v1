@@ -1,5 +1,5 @@
 import { api } from '@/lib/api-client'
-import type { TokenResponse, User } from '@/types/api'
+import type { ProfileRequest, TokenResponse, User } from '@/types/api'
 
 export const authApi = {
   login: (email: string, password: string) =>
@@ -11,6 +11,8 @@ export const authApi = {
       .then((r) => r.data),
 
   me: () => api.get<User>('/auth/me').then((r) => r.data),
+
+  updateMe: (req: ProfileRequest) => api.put<User>('/auth/me', req).then((r) => r.data),
 
   /**
    * Logout server-side: revoca el token en el backend antes de borrarlo localmente.

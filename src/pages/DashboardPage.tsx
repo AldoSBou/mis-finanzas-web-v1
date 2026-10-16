@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Settings2 } from 'lucide-react'
 import { Link } from 'react-router'
-import { accountsApi, dashboardApi } from '@/api/services'
+import { accountsApi, dashboardApi, overviewApi } from '@/api/services'
 import { queryKeys } from '@/lib/query-keys'
 import {
   bucketColor,
@@ -18,6 +18,9 @@ import { UpcomingCard } from '@/features/recurring/UpcomingCard'
 import { BudgetAlertsCard } from '@/features/budgets/BudgetAlertsCard'
 import { GoalsCard } from '@/features/goals/GoalsCard'
 import { CardsDueCard } from '@/features/cards/CardsDueCard'
+import { RemainingCard } from '@/features/overview/RemainingCard'
+import { CategoriesCard } from '@/features/overview/CategoriesCard'
+import { CommitmentsCard } from '@/features/commitments/CommitmentsCard'
 
 export function DashboardPage() {
   const [period, setPeriod] = useState(currentPeriod())
@@ -30,6 +33,14 @@ export function DashboardPage() {
   const { data: accounts = [] } = useQuery({
     queryKey: queryKeys.accounts.list(false),
     queryFn: () => accountsApi.list(false),
+  })
+
+  // "Te quedan" solo tiene sentido para el periodo en curso
+  const isCurrent = period === currentPeriod()
+  const { data: overview, error: overviewError } = useQuery({
+    queryKey: queryKeys.overview.all,
+    queryFn: overviewApi.get,
+    enabled: isCurrent,
   })
 
   const fmt = (v: string | number) => formatCurrency(v, data?.baseCurrency ?? 'PEN')
@@ -46,6 +57,17 @@ export function DashboardPage() {
 
       {isLoading && <Loading />}
       {error && <ErrorState message={getErrorMessage(error)} />}
+      {overviewError && <ErrorState message={getErrorMessage(overviewError)} />}
+
+      {isCurrent && overview && (
+        <div className="mb-4 space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <RemainingCard overview={overview} />
+            <CategoriesCard overview={overview} />
+          </div>
+          <CommitmentsCard overview={overview} />
+        </div>
+      )}
 
       {data && (
         <>

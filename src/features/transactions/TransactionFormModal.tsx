@@ -352,6 +352,7 @@ export function TransactionFormModal({
       queryClient.invalidateQueries({ queryKey: ['reports'] })
       queryClient.invalidateQueries({ queryKey: ['goals'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['overview'] })
       onSuccess?.()
       onClose()
     },
