@@ -91,7 +91,12 @@ api.interceptors.response.use(
     const config = error.config as (typeof error.config & { _retries?: number }) | undefined
     const status = error.response?.status
     const waking = !error.response || status === 502 || status === 503 || status === 504
-    if (config && config.method === 'get' && waking && (config._retries ?? 0) < WAKE_RETRIES) {
+    // 503 DATABASE_UNAVAILABLE: la base aún no despertó y nada se ejecutó, así que
+    // también es seguro repetir un POST/PUT/DELETE.
+    const dbWaking =
+      status === 503 &&
+      (error.response?.data as ApiResponse<unknown> | undefined)?.error?.code === 'DATABASE_UNAVAILABLE'
+    if (config && (config.method === 'get' || dbWaking) && waking && (config._retries ?? 0) < WAKE_RETRIES) {
       config._retries = (config._retries ?? 0) + 1
       await new Promise((r) => setTimeout(r, 1500 * config._retries!))
       return api(config)
