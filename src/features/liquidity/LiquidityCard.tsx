@@ -18,8 +18,8 @@ import { ErrorState } from '@/components/ui/States'
 import { AXIS_TICK, GRID, SERIES, compactAmount } from '@/features/reports/charts'
 import { getErrorMessage } from '@/lib/api-client'
 import { queryKeys } from '@/lib/query-keys'
-import { currencySymbol, formatCurrency, longDate, shortDate } from '@/lib/format'
-import type { LiquidityEvent } from '@/types/api'
+import { formatCurrency, longDate, shortDate } from '@/lib/format'
+import type { CurrencyProjection, LiquidityEvent } from '@/types/api'
 
 const LINE = SERIES[0]
 const NEGATIVE = '#dc2626'
@@ -33,16 +33,21 @@ function readDaily(): string {
   }
 }
 
+const CURRENCY_NAMES: Record<string, string> = { PEN: 'soles', USD: 'dólares', EUR: 'euros' }
+export function currencyName(code: string): string {
+  return CURRENCY_NAMES[code] ?? code
+}
+
 /**
  * Liquidez: "¿me alcanza la plata de las cuentas hasta que caiga el sueldo?".
- * Una sola serie (el efectivo proyectado), con el día más bajo marcado y la lista de lo
- * que entra y sale. Distinta de "te quedan": aquí la tarjeta pesa el día que se paga.
+ * Una proyección por moneda, sin convertir nada: los soles responden por los soles y los
+ * dólares por los dólares. Cada una con una sola serie (el efectivo proyectado), el día más
+ * bajo marcado y la lista de lo que entra y sale. Distinta de "te quedan": aquí la tarjeta
+ * pesa el día que se paga.
  */
 export function LiquidityCard() {
   const [daily, setDaily] = useState(readDaily)
   const [editingDaily, setEditingDaily] = useState(false)
-  const [detail, setDetail] = useState(false)
-  const [table, setTable] = useState(false)
 
   const { data, error } = useQuery({
     queryKey: queryKeys.liquidity.with(daily),
@@ -52,12 +57,9 @@ export function LiquidityCard() {
   if (error) return <ErrorState message={getErrorMessage(error)} />
   if (!data) return null
 
-  const currency = data.baseCurrency
-  const fmt = (v: string | number) => formatCurrency(v, currency)
-  const lowest = parseFloat(data.lowest.balance)
-  const excluded = data.accounts.filter((a) => a.balanceBase === null)
-  const points = data.days.map((d) => ({ date: d.date, balance: parseFloat(d.balance) }))
-  const lowestPoint = points.reduce((m, p) => (p.balance < m.balance ? p : m), points[0])
+  const base = data.currencies.find((p) => p.currency === data.baseCurrency) ?? data.currencies[0]
+  const fmtBase = (v: string | number) => formatCurrency(v, data.baseCurrency)
+  const several = data.currencies.length > 1
 
   const saveDaily = (v: string) => {
     setDaily(v)
@@ -72,32 +74,16 @@ export function LiquidityCard() {
   return (
     <div className="card">
       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-2">
-        <div>
-          <h3 className="text-sm font-semibold">Liquidez hasta el {longDate(data.horizonEnd)}</h3>
-          <p className="text-sm text-gray-600 mt-1">
-            Hoy tienes <span className="font-medium">{fmt(data.opening)}</span> en tus cuentas.{' '}
-            {data.firstNegative ? (
-              <span className="text-red-700">
-                Te quedas sin efectivo el {longDate(data.firstNegative)}: el punto más bajo es {fmt(data.lowest.balance)} el{' '}
-                {shortDate(data.lowest.date)}.
-              </span>
-            ) : (
-              <>
-                El punto más bajo es <span className="font-medium">{fmt(data.lowest.balance)}</span> el {shortDate(data.lowest.date)}, y
-                terminas con <span className="font-medium">{fmt(data.endBalance)}</span>.
-              </>
-            )}
-          </p>
-        </div>
+        <h3 className="text-sm font-semibold">Liquidez hasta el {longDate(data.horizonEnd)}</h3>
         <div className="text-xs text-gray-500 whitespace-nowrap">
-          Gasto variable:{' '}
+          Gasto variable{several ? ` en ${currencyName(data.baseCurrency)}` : ''}:{' '}
           {editingDaily ? (
             <span className="inline-flex items-center gap-1">
               <MoneyInput
                 value={daily}
                 onChange={setDaily}
                 className="input w-28 py-1 text-xs"
-                placeholder={parseFloat(data.dailyVariableEstimated).toFixed(2)}
+                placeholder={parseFloat(base.dailyVariableEstimated).toFixed(2)}
                 autoFocus
                 onBlur={() => {
                   saveDaily(daily)
@@ -108,19 +94,76 @@ export function LiquidityCard() {
             </span>
           ) : (
             <button type="button" onClick={() => setEditingDaily(true)} className="text-brand-700 hover:underline">
-              {fmt(data.dailyVariable)} por día{daily ? ' (tuyo)' : ' (promedio 28 días)'}
+              {fmtBase(base.dailyVariable)} por día{daily ? ' (tuyo)' : ' (promedio 28 días)'}
             </button>
           )}
         </div>
       </div>
 
-      {excluded.length > 0 && (
-        <p className="text-[11px] text-amber-700 mb-2">
-          Sin tipo de cambio conocido, fuera del cálculo: {excluded.map((a) => `${a.name} (${a.currency})`).join(', ')}.
-        </p>
-      )}
+      <div className={several ? 'divide-y divide-gray-100' : ''}>
+        {data.currencies.map((p) => (
+          <CurrencyBlock key={p.currency} projection={p} periodEnd={data.periodEnd} titled={several} />
+        ))}
+      </div>
 
-      {!table ? (
+      <p className="text-[11px] text-gray-400 mt-3">
+        Efectivo = cuentas líquidas (sin tarjetas ni ahorro). Cada moneda va por separado y nada se convierte: el pago de
+        una tarjeta en dólares sale de los dólares. El pago de la tarjeta sale el día de vencimiento; lo que compres con
+        tarjeta en este ciclo no se proyecta hasta registrar el estado de cuenta. El gasto variable es el promedio diario
+        de los últimos 28 días sin recurrentes ni compromisos.
+      </p>
+    </div>
+  )
+}
+
+/** La proyección de una moneda: resumen en una frase, gráfico o tabla, y el detalle desplegable. */
+function CurrencyBlock({
+  projection: p,
+  periodEnd,
+  titled,
+}: {
+  projection: CurrencyProjection
+  periodEnd: string
+  titled: boolean
+}) {
+  const [detail, setDetail] = useState(false)
+  const [table, setTable] = useState(false)
+  const fmt = (v: string | number) => formatCurrency(v, p.currency)
+  const lowest = parseFloat(p.lowest.balance)
+  const points = p.days.map((d) => ({ date: d.date, balance: parseFloat(d.balance) }))
+  const lowestPoint = points.reduce((m, q) => (q.balance < m.balance ? q : m), points[0])
+  const noAccounts = p.accounts.length === 0
+
+  return (
+    <div className={titled ? 'py-3 first:pt-0 last:pb-0' : ''}>
+      {titled && <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">En {currencyName(p.currency)}</h4>}
+      <p className="text-sm text-gray-600 mb-2">
+        {noAccounts ? (
+          <>
+            No tienes cuentas en {currencyName(p.currency)}.{' '}
+            <span className="text-red-700">
+              Para cubrir lo previsto te faltan {fmt(-lowest)} el {shortDate(p.lowest.date)}.
+            </span>
+          </>
+        ) : (
+          <>
+            Hoy tienes <span className="font-medium">{fmt(p.opening)}</span> en tus cuentas.{' '}
+            {p.firstNegative ? (
+              <span className="text-red-700">
+                Te quedas sin efectivo el {longDate(p.firstNegative)}: el punto más bajo es {fmt(p.lowest.balance)} el{' '}
+                {shortDate(p.lowest.date)}.
+              </span>
+            ) : (
+              <>
+                El punto más bajo es <span className="font-medium">{fmt(p.lowest.balance)}</span> el {shortDate(p.lowest.date)}, y
+                terminas con <span className="font-medium">{fmt(p.endBalance)}</span>.
+              </>
+            )}
+          </>
+        )}
+      </p>
+
+      {!noAccounts && !table && (
         <div className="h-48">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={points} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
@@ -137,7 +180,7 @@ export function LiquidityCard() {
               <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} tickFormatter={compactAmount} width={56} />
               <Tooltip content={<DayTooltip fmt={fmt} />} cursor={{ stroke: GRID }} />
               <ReferenceLine y={0} stroke={NEGATIVE} strokeDasharray="3 3" />
-              <ReferenceLine x={data.periodEnd} stroke={GRID} label={{ value: 'fin de periodo', fontSize: 10, fill: '#6b7280', position: 'top' }} />
+              <ReferenceLine x={periodEnd} stroke={GRID} label={{ value: 'fin de periodo', fontSize: 10, fill: '#6b7280', position: 'top' }} />
               <Line
                 type="monotone"
                 dataKey="balance"
@@ -159,7 +202,8 @@ export function LiquidityCard() {
             </LineChart>
           </ResponsiveContainer>
         </div>
-      ) : (
+      )}
+      {!noAccounts && table && (
         <div className="max-h-48 overflow-y-auto">
           <table className="w-full text-xs tabular-nums">
             <thead>
@@ -169,7 +213,7 @@ export function LiquidityCard() {
               </tr>
             </thead>
             <tbody>
-              {data.days.map((d) => (
+              {p.days.map((d) => (
                 <tr key={d.date} className="border-t border-gray-100">
                   <td className="py-0.5">{shortDate(d.date)}</td>
                   <td className={`text-right py-0.5 ${parseFloat(d.balance) < 0 ? 'text-red-600' : ''}`}>{fmt(d.balance)}</td>
@@ -181,43 +225,35 @@ export function LiquidityCard() {
       )}
 
       <div className="flex items-center gap-4 mt-2">
-        <button type="button" onClick={() => setTable((t) => !t)} className="text-xs text-brand-700 hover:underline">
-          {table ? 'Ver gráfico' : 'Ver tabla'}
-        </button>
+        {!noAccounts && (
+          <button type="button" onClick={() => setTable((t) => !t)} className="text-xs text-brand-700 hover:underline">
+            {table ? 'Ver gráfico' : 'Ver tabla'}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setDetail((d) => !d)}
           className="text-xs text-brand-700 hover:underline inline-flex items-center gap-1"
         >
           {detail ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-          {detail ? 'Ocultar detalle' : `Qué entra y sale (${data.events.length})`}
+          {detail ? 'Ocultar detalle' : `Qué entra y sale (${p.events.length})`}
         </button>
       </div>
 
       {detail && (
-        <div className="mt-2 text-sm">
-          <div className="divide-y divide-gray-100">
-            {data.accounts.map((a) => (
-              <div key={a.id} className="flex justify-between py-1 text-gray-600">
-                <span>
-                  {a.name}
-                  {a.currency !== currency && <span className="text-gray-400"> · {a.currency}</span>}
-                </span>
-                <span className="tabular-nums">{a.balanceBase !== null ? fmt(a.balanceBase) : 'sin tipo de cambio'}</span>
-              </div>
-            ))}
-            {data.events.map((e) => (
-              <EventRow key={`${e.kind}-${e.id}-${e.date}`} event={e} fmt={fmt} />
-            ))}
-            {data.events.length === 0 && (
-              <p className="py-2 text-gray-400 text-xs">Nada programado. Los recurrentes, compromisos y pagos de tarjeta aparecen aquí.</p>
-            )}
-          </div>
-          <p className="text-[11px] text-gray-400 mt-2">
-            Efectivo = cuentas líquidas (sin tarjetas ni ahorro). El pago de la tarjeta sale el día de vencimiento; lo que
-            compres con tarjeta en este ciclo no se proyecta hasta registrar el estado de cuenta. El gasto variable es el
-            promedio diario de los últimos 28 días sin recurrentes ni compromisos ({currencySymbol(currency)}).
-          </p>
+        <div className="mt-2 text-sm divide-y divide-gray-100">
+          {p.accounts.map((a) => (
+            <div key={a.id} className="flex justify-between py-1 text-gray-600">
+              <span>{a.name}</span>
+              <span className="tabular-nums">{fmt(a.balance)}</span>
+            </div>
+          ))}
+          {p.events.map((e) => (
+            <EventRow key={`${e.kind}-${e.id}-${e.date}`} event={e} fmt={fmt} />
+          ))}
+          {p.events.length === 0 && (
+            <p className="py-2 text-gray-400 text-xs">Nada programado. Los recurrentes, compromisos y pagos de tarjeta aparecen aquí.</p>
+          )}
         </div>
       )}
     </div>

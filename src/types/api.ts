@@ -43,10 +43,8 @@ export interface LiquidAccount {
   id: number
   name: string
   currency: string
+  /** En la moneda de la cuenta */
   balance: string
-  /** null si no hay tipo de cambio conocido (queda fuera del cálculo) */
-  balanceBase: string | null
-  rate: string | null
 }
 
 export interface LiquidityEvent {
@@ -63,21 +61,28 @@ export interface LiquidityDay {
   balance: string
 }
 
-/** Efectivo proyectado día a día hasta el fin del periodo siguiente. Montos en moneda base. */
-export interface LiquidityResponse {
-  today: string
-  periodEnd: string
-  horizonEnd: string
-  baseCurrency: string
+/** Proyección del efectivo en una moneda. Nada se convierte: solo entra lo que está en esa moneda. */
+export interface CurrencyProjection {
+  currency: string
   accounts: LiquidAccount[]
   opening: string
   dailyVariableEstimated: string
+  /** El estimado, o el que mandó el cliente (solo en la moneda base) */
   dailyVariable: string
   events: LiquidityEvent[]
   days: LiquidityDay[]
   lowest: LiquidityDay
   firstNegative: string | null
   endBalance: string
+}
+
+/** Efectivo proyectado día a día hasta el fin del periodo siguiente, una proyección por moneda (la base primero). */
+export interface LiquidityResponse {
+  today: string
+  periodEnd: string
+  horizonEnd: string
+  baseCurrency: string
+  currencies: CurrencyProjection[]
 }
 
 // ---------- Flujo de caja ----------
@@ -332,6 +337,8 @@ export interface UpcomingItem {
   accountId: number
   toAccountId: number | null
   categoryId: number | null
+  /** Lo que llega a la cuenta destino en su moneda (solo transferencias); null si no se conoce */
+  toAmount: string | null
   description: string | null
   categoryName: string | null
   accountName: string | null
