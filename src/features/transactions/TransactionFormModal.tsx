@@ -353,6 +353,7 @@ export function TransactionFormModal({
       queryClient.invalidateQueries({ queryKey: ['goals'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['overview'] })
+      queryClient.invalidateQueries({ queryKey: ['cashflow'] })
       onSuccess?.()
       onClose()
     },

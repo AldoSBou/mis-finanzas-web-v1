@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  Table2,
   CreditCard,
   LayoutDashboard,
   ListOrdered,
@@ -24,6 +25,7 @@ import { TransactionFormModal } from '@/features/transactions/TransactionFormMod
 const navItems = [
   { to: '/', label: 'Panel', icon: LayoutDashboard, end: true },
   { to: '/movimientos', label: 'Movimientos', icon: ListOrdered },
+  { to: '/flujo', label: 'Flujo de caja', icon: Table2 },
   { to: '/reportes', label: 'Reportes', icon: BarChart3 },
   { to: '/cuentas', label: 'Cuentas', icon: Wallet },
   { to: '/tarjetas', label: 'Tarjetas', icon: CreditCard },

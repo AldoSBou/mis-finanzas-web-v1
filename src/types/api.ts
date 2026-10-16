@@ -37,6 +37,31 @@ export interface ProfileRequest {
   periodStartDay?: number
 }
 
+// ---------- Flujo de caja ----------
+
+/** Una fila de la grilla: categoría o cuenta de ahorro, con un monto por mes. */
+export interface CashflowRow {
+  id: number
+  name: string
+  color: string | null
+  monthly: string[]
+  total: string
+}
+
+/** Grilla de 1 a 6 meses. net = ingresos − gastos − ahorro; cumulative acumula el neto. */
+export interface CashflowResponse {
+  baseCurrency: string
+  periods: string[]
+  income: CashflowRow[]
+  expenses: CashflowRow[]
+  savings: CashflowRow[]
+  totalIncome: string[]
+  totalExpenses: string[]
+  totalSavings: string[]
+  net: string[]
+  cumulative: string[]
+}
+
 // ---------- Compromisos y "te quedan" ----------
 
 export type CommitmentStatus = 'PENDING' | 'PAID' | 'SKIPPED'

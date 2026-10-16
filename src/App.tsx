@@ -21,6 +21,7 @@ import { Loading } from '@/components/ui/States'
 // Páginas pesadas (gráficos, lector de Excel): se descargan al abrirlas
 const ReportsPage = lazy(() => import('@/pages/ReportsPage').then((m) => ({ default: m.ReportsPage })))
 const ImportPage = lazy(() => import('@/pages/ImportPage').then((m) => ({ default: m.ImportPage })))
+const CashflowPage = lazy(() => import('@/pages/CashflowPage').then((m) => ({ default: m.CashflowPage })))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -55,6 +56,14 @@ export function App() {
               <Route path="recurrentes" element={<RecurringPage />} />
               <Route path="presupuestos" element={<BudgetsPage />} />
               <Route path="metas" element={<GoalsPage />} />
+              <Route
+                path="flujo"
+                element={
+                  <Suspense fallback={<Loading />}>
+                    <CashflowPage />
+                  </Suspense>
+                }
+              />
               <Route
                 path="reportes"
                 element={

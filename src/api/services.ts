@@ -11,6 +11,7 @@ import type {
   CategorizationRule,
   Contribution,
   ContributionRequest,
+  CashflowResponse,
   CategoryBudgetSummary,
   CategoryRequest,
   Commitment,
@@ -219,6 +220,11 @@ export const reportsApi = {
     api
       .get<ReportResponse>('/reports', { params: { months, until } })
       .then((r) => r.data),
+}
+
+export const cashflowApi = {
+  get: (until: string, months: number) =>
+    api.get<CashflowResponse>('/cashflow', { params: { until, months } }).then((r) => r.data),
 }
 
 export const overviewApi = {

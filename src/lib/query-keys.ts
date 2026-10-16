@@ -55,6 +55,9 @@ export const queryKeys = {
   overview: {
     all: ['overview'] as const,
   },
+  cashflow: {
+    range: (until: string, months: number) => ['cashflow', until, months] as const,
+  },
   commitments: {
     all: ['commitments'] as const,
   },
