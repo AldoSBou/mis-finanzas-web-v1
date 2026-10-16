@@ -13,8 +13,18 @@ const API_BASE = import.meta.env.VITE_API_URL ?? '/api'
 
 const TOKEN_KEY = 'mis-finanzas:token'
 
-/** Reintentos de un GET mientras el backend despierta (esperas de 1.5s, 3s, 4.5s, 6s). */
-const WAKE_RETRIES = 4
+/**
+ * Reintentos mientras el backend despierta: hasta 3 más, con esperas de 2, 4 y 8 s.
+ * Se repite cualquier método cuando no hubo respuesta o llegó 502/503/504: en esos
+ * casos el servidor no llegó a ejecutar nada (Railway Free lo duerme).
+ */
+const WAKE_DELAYS_MS = [2000, 4000, 8000]
+
+/** Cortacircuito: tras 3 peticiones seguidas que agotan sus reintentos, 20 s de fallo inmediato. */
+const CIRCUIT_OPEN_AFTER = 3
+const CIRCUIT_OPEN_MS = 20_000
+let consecutiveFailures = 0
+let circuitOpenUntil = 0
 
 export const tokenStorage = {
   get: () => localStorage.getItem(TOKEN_KEY),
@@ -56,8 +66,17 @@ export class ApiClientError extends Error {
   }
 }
 
-// Interceptor de request: agrega el token si existe
+// Interceptor de request: agrega el token si existe y respeta el cortacircuito
 api.interceptors.request.use((config) => {
+  const remaining = circuitOpenUntil - Date.now()
+  if (remaining > 0) {
+    return Promise.reject(
+      new ApiClientError({
+        code: 'CIRCUIT_OPEN',
+        message: `El servidor no responde. Vuelve a intentar en ${Math.ceil(remaining / 1000)} s.`,
+      }),
+    )
+  }
   const token = tokenStorage.get()
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
@@ -68,6 +87,8 @@ api.interceptors.request.use((config) => {
 // Interceptor de response: desempaca el envelope
 api.interceptors.response.use(
   (response) => {
+    consecutiveFailures = 0
+    circuitOpenUntil = 0
     const envelope = response.data as ApiResponse<unknown>
     // El backend siempre devuelve envelope. Desempacamos data.
     if (envelope && typeof envelope === 'object' && 'success' in envelope) {
@@ -90,16 +111,27 @@ api.interceptors.response.use(
     // Reintentamos solo lecturas (GET), que son seguras de repetir.
     const config = error.config as (typeof error.config & { _retries?: number }) | undefined
     const status = error.response?.status
-    const waking = !error.response || status === 502 || status === 503 || status === 504
-    // 503 DATABASE_UNAVAILABLE: la base aún no despertó y nada se ejecutó, así que
-    // también es seguro repetir un POST/PUT/DELETE.
-    const dbWaking =
-      status === 503 &&
-      (error.response?.data as ApiResponse<unknown> | undefined)?.error?.code === 'DATABASE_UNAVAILABLE'
-    if (config && (config.method === 'get' || dbWaking) && waking && (config._retries ?? 0) < WAKE_RETRIES) {
-      config._retries = (config._retries ?? 0) + 1
-      await new Promise((r) => setTimeout(r, 1500 * config._retries!))
+    const errorCode = (error.response?.data as ApiResponse<unknown> | undefined)?.error?.code
+    // Un 503 con código propio (p. ej. VOICE_UNAVAILABLE) es definitivo; sin código o
+    // DATABASE_UNAVAILABLE es el servidor despertando.
+    const waking =
+      !error.response ||
+      status === 502 ||
+      status === 504 ||
+      (status === 503 && (!errorCode || errorCode === 'DATABASE_UNAVAILABLE'))
+    if (config && waking && (config._retries ?? 0) < WAKE_DELAYS_MS.length) {
+      const n = config._retries ?? 0
+      config._retries = n + 1
+      await new Promise((r) => setTimeout(r, WAKE_DELAYS_MS[n]))
       return api(config)
+    }
+    if (waking) {
+      consecutiveFailures++
+      if (consecutiveFailures >= CIRCUIT_OPEN_AFTER) circuitOpenUntil = Date.now() + CIRCUIT_OPEN_MS
+    } else {
+      // Respondió de verdad (aunque sea un 4xx): el servidor está vivo
+      consecutiveFailures = 0
+      circuitOpenUntil = 0
     }
 
     // Errores HTTP (4xx, 5xx) con envelope
