@@ -1,8 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { ArrowRightLeft, Download, Pencil, Repeat, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
-import { accountsApi, categoriesApi, transactionsApi } from '@/api/services'
+import {
+  ArrowRightLeft,
+  ChevronDown,
+  ChevronRight,
+  Download,
+  Pencil,
+  Receipt,
+  Repeat,
+  Search,
+  SlidersHorizontal,
+  Trash2,
+} from 'lucide-react'
+import { accountsApi, categoriesApi, receiptsApi, transactionsApi } from '@/api/services'
 import { queryKeys } from '@/lib/query-keys'
 import { currentPeriod, formatCurrency, periodLabel, shortDate } from '@/lib/format'
 import { EmptyState, ErrorState, Loading } from '@/components/ui/States'
@@ -97,6 +108,41 @@ export function TransactionsPage() {
   const handleDelete = (t: Transaction) => {
     if (confirm(`¿Eliminar este movimiento por ${formatCurrency(t.amount, t.currency)}?`)) {
       deleteMutation.mutate(t.id)
+    }
+  }
+
+  // Una boleta leída por foto son varios movimientos: se borran juntos
+  const deleteReceiptMutation = useMutation({
+    mutationFn: (id: number) => receiptsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.transactions.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.accounts.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.categoryBudgets.all })
+      queryClient.invalidateQueries({ queryKey: ['reports'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['overview'] })
+      queryClient.invalidateQueries({ queryKey: ['cashflow'] })
+      queryClient.invalidateQueries({ queryKey: ['liquidity'] })
+    },
+  })
+
+  const handleDeleteReceipt = (group: Transaction[]) => {
+    const total = group.reduce((s, t) => s + Number(t.amount), 0)
+    if (confirm(`¿Eliminar la boleta completa (${group.length} movimientos, ${formatCurrency(total, group[0].currency)})?`)) {
+      deleteReceiptMutation.mutate(group[0].receiptId!)
+    }
+  }
+
+  /** Movimientos seguidos de la misma boleta se muestran como una boleta desplegable. */
+  const rows: Array<{ kind: 'tx'; tx: Transaction } | { kind: 'receipt'; group: Transaction[] }> = []
+  for (const t of data?.items ?? []) {
+    const last = rows[rows.length - 1]
+    if (t.receiptId && last?.kind === 'receipt' && last.group[0].receiptId === t.receiptId) {
+      last.group.push(t)
+    } else if (t.receiptId) {
+      rows.push({ kind: 'receipt', group: [t] })
+    } else {
+      rows.push({ kind: 'tx', tx: t })
     }
   }
 
@@ -273,15 +319,33 @@ export function TransactionsPage() {
       {data && data.items.length > 0 && (
         <>
           <div className="card divide-y divide-gray-100 p-0">
-            {data.items.map((t) => (
-              <TransactionRow
-                key={t.id}
-                tx={t}
-                filterAccountId={accountId}
-                onEdit={() => setEditing(t)}
-                onDelete={() => handleDelete(t)}
-              />
-            ))}
+            {rows.map((row) =>
+              row.kind === 'tx' ? (
+                <TransactionRow
+                  key={row.tx.id}
+                  tx={row.tx}
+                  filterAccountId={accountId}
+                  onEdit={() => setEditing(row.tx)}
+                  onDelete={() => handleDelete(row.tx)}
+                />
+              ) : row.group.length === 1 ? (
+                <TransactionRow
+                  key={row.group[0].id}
+                  tx={row.group[0]}
+                  filterAccountId={accountId}
+                  onEdit={() => setEditing(row.group[0])}
+                  onDelete={() => handleDelete(row.group[0])}
+                />
+              ) : (
+                <ReceiptRows
+                  key={`r${row.group[0].receiptId}`}
+                  group={row.group}
+                  onEdit={setEditing}
+                  onDeleteOne={handleDelete}
+                  onDeleteAll={() => handleDeleteReceipt(row.group)}
+                />
+              ),
+            )}
           </div>
 
           {totalPages > 1 && (
@@ -315,6 +379,73 @@ export function TransactionsPage() {
         onClose={() => setEditing(null)}
         initial={editing}
       />
+    </div>
+  )
+}
+
+/** Boleta leída por foto: una fila resumen y, al desplegar, un movimiento por categoría. */
+function ReceiptRows({
+  group,
+  onEdit,
+  onDeleteOne,
+  onDeleteAll,
+}: {
+  group: Transaction[]
+  onEdit: (t: Transaction) => void
+  onDeleteOne: (t: Transaction) => void
+  onDeleteAll: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const first = group[0]
+  const total = group.reduce((s, t) => s + Number(t.amount), 0)
+  // La descripción es "Comercio · productos": el comercio va antes del separador
+  const merchant = first.description?.split(' · ')[0] || 'Boleta'
+  const Chevron = open ? ChevronDown : ChevronRight
+  return (
+    <div>
+      <div className="flex items-center gap-3 px-4 py-3">
+        <div className="w-9 h-9 rounded-full flex items-center justify-center bg-brand-50 text-brand-700 flex-shrink-0">
+          <Receipt className="w-4 h-4" />
+        </div>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="flex-1 min-w-0 text-left"
+          aria-expanded={open}
+        >
+          <p className="text-sm font-medium truncate flex items-center gap-1">
+            {merchant}
+            <Chevron className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+          </p>
+          <p className="text-xs text-gray-500 truncate">
+            Boleta · {group.length} categorías · {first.accountName}
+          </p>
+        </button>
+        <div className="text-right shrink-0">
+          <p className="text-sm font-medium tabular-nums text-gray-900">− {formatCurrency(total, first.currency)}</p>
+          <p className="text-xs text-gray-500">
+            <span className="sm:hidden">{shortDate(first.transactionDate)}</span>
+            <span className="hidden sm:inline">{first.transactionDate}</span>
+          </p>
+        </div>
+        <div className="flex gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={onDeleteAll}
+            className="p-1.5 hover:bg-red-50 rounded text-red-500"
+            aria-label="Eliminar boleta completa"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+      {open && (
+        <div className="bg-gray-50/70 border-t border-gray-100 pl-6 divide-y divide-gray-100">
+          {group.map((t) => (
+            <TransactionRow key={t.id} tx={t} onEdit={() => onEdit(t)} onDelete={() => onDeleteOne(t)} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -17,6 +17,9 @@ import type {
   CategoryRequest,
   ClientEventRequest,
   MetricsSummary,
+  ReceiptCreateRequest,
+  ReceiptPreview,
+  ReceiptResponse,
   VoiceParseResponse,
   Commitment,
   CommitmentRequest,
@@ -244,6 +247,17 @@ export const voiceApi = {
     api
       .post<VoiceParseResponse>('/voice/parse-image', { imageBase64, mediaType }, { timeout: 60000 })
       .then((r) => r.data),
+}
+
+/** Boletas con varios productos: lectura por foto, confirmación (un movimiento por categoría) y deshacer. */
+export const receiptsApi = {
+  parse: (images: string[], mediaType: string) =>
+    api
+      .post<ReceiptPreview>('/receipts/parse', { images, mediaType }, { timeout: 90000 })
+      .then((r) => r.data),
+  create: (req: ReceiptCreateRequest) => api.post<ReceiptResponse>('/receipts', req).then((r) => r.data),
+  get: (id: number) => api.get<ReceiptResponse>(`/receipts/${id}`).then((r) => r.data),
+  delete: (id: number) => api.delete<void>(`/receipts/${id}`).then((r) => r.data),
 }
 
 /** Métricas de uso (velocidad de registro y errores), las mismas que manda la app móvil. */

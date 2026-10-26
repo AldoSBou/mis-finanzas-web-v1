@@ -14,12 +14,13 @@ import {
   Loader2,
   Mic,
   Pencil,
+  Plus,
   RefreshCw,
   Send,
   SlidersHorizontal,
   X,
 } from 'lucide-react'
-import { accountsApi, categoriesApi, overviewApi, transactionsApi, voiceApi } from '@/api/services'
+import { accountsApi, categoriesApi, overviewApi, receiptsApi, transactionsApi, voiceApi } from '@/api/services'
 import { InstallHint } from '@/components/InstallHint'
 import { TransactionFormModal } from '@/features/transactions/TransactionFormModal'
 import { useAuth } from '@/features/auth/AuthProvider'
@@ -28,21 +29,39 @@ import { categoryIcon } from '@/lib/category-icons'
 import { MAX_DIGITS, toDigits } from '@/lib/cents'
 import { formatCurrency, shortDate, todayIso } from '@/lib/format'
 import { flush, recordEntry, recordError, Stopwatch, type EntrySource } from '@/lib/metrics'
-import { pickPhoto, type PhotoSource } from '@/lib/photo'
+import { pickPhoto, RECEIPT_MAX_SIDE, type PhotoSource } from '@/lib/photo'
 import { queryKeys } from '@/lib/query-keys'
 import { cancelListening, speechAvailable, startListening, stopListening } from '@/lib/speech'
 import { lastAccount, rankCategories, recordUse, saveLastAccount } from '@/lib/usage'
 import { parseUtterance, type VoiceHistory, type VoiceParse } from '@/lib/voice-parse'
-import type { Category, Transaction, TransactionRequest, TransactionType } from '@/types/api'
+import type {
+  Category,
+  ReceiptGroup,
+  ReceiptPreview,
+  TransactionRequest,
+  TransactionType,
+} from '@/types/api'
 
 /** Categorías en la pantalla (3 × 3 con "Más"). */
 const QUICK = 8
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '00', '0', '⌫']
 
 type Toast =
-  | { kind: 'saved'; tx: Transaction; text: string }
+  | { kind: 'saved'; text: string; undo: () => Promise<void> }
   | { kind: 'error'; text: string; retry: () => void }
   | { kind: 'info'; text: string }
+
+/** Boleta leída, en edición antes de confirmar. */
+interface ReceiptDraft {
+  preview: ReceiptPreview
+  groups: ReceiptGroup[]
+  /** Fotos ya enviadas (base64), por si la boleta sigue en otra foto */
+  images: string[]
+  /** Fecha tal como se leyó, para volver a ella tras elegir Hoy */
+  readDate: string | null
+  /** true si la persona cambió alguna categoría (métrica photo-edited) */
+  edited: boolean
+}
 
 /** Qué muestra la hoja inferior: todas las categorías o el teclado de una. */
 type Sheet = { mode: 'all' } | { mode: 'amount'; category: Category } | null
@@ -115,6 +134,14 @@ export function QuickEntryPage() {
   /** Monto, nota y fecha entendidos cuando la categoría no se reconoció: se aplican al elegirla */
   const [pendingVoice, setPendingVoice] = useState<Prefill | null>(null)
   const history = useRef<VoiceHistory | null>(null)
+
+  // Boleta con varios productos: se confirma antes de guardar
+  const [receipt, setReceipt] = useState<ReceiptDraft | null>(null)
+  /** Índice del grupo cuya categoría se está cambiando */
+  const [receiptPick, setReceiptPick] = useState<number | null>(null)
+  const [receiptOpenItems, setReceiptOpenItems] = useState<number | null>(null)
+  const [receiptSaving, setReceiptSaving] = useState(false)
+  const [creatingCategory, setCreatingCategory] = useState(false)
 
   // Medición: desde que aparece la pantalla hasta que se toca Guardar
   const [watch] = useState(() => new Stopwatch())
@@ -366,45 +393,144 @@ export function QuickEntryPage() {
 
   // ---------- Foto ----------
 
-  /** Foto del voucher o captura de Yape: el backend lee monto, categoría, descripción y fecha. */
-  const readPhoto = async (source: PhotoSource) => {
+  /**
+   * Foto de boleta, voucher o captura de Yape. El backend lista los productos con su categoría:
+   * si todo cae en una sola, se abre el teclado prellenado (como un voucher); si hay varias,
+   * una hoja para confirmar un movimiento por categoría.
+   */
+  const readPhoto = async (source: PhotoSource, previous: string[] = []) => {
     setPhotoSheet(false)
     let picked: Awaited<ReturnType<typeof pickPhoto>>
     try {
-      picked = await pickPhoto(source)
+      picked = await pickPhoto(source, RECEIPT_MAX_SIDE)
     } catch (e) {
       showToast({ kind: 'info', text: e instanceof Error ? e.message : 'No se pudo abrir la imagen' }, 4000)
       return
     }
     if (!picked) return
+    const images = [...previous, picked.base64]
     setReading(true)
     try {
-      const r = await voiceApi.parseImage(picked.base64, picked.mediaType)
+      const preview = await receiptsApi.parse(images, picked.mediaType)
+      if (!applyCurrency(preview.currency)) return
       const active = categories.filter((c) => !c.archived)
-      const category = active.find((c) => c.id === r.categoryId) ?? null
-      const digits = r.amount ? amountToDigits(r.amount) : ''
-      if (!digits && !category) {
-        showToast(
-          { kind: 'info', text: 'No pude leer un monto en esa imagen. Prueba con una foto más cerca o anótalo con el teclado.' },
-          5000,
-        )
+      const only = preview.groups.length === 1 ? preview.groups[0] : null
+      const onlyCategory = only?.categoryId ? active.find((c) => c.id === only.categoryId) ?? null : null
+      if (only && onlyCategory && previous.length === 0) {
+        // Una sola categoría (voucher, Yape, boleta simple): flujo de siempre, con el teclado a mano
+        setType('EXPENSE')
+        const digits = amountToDigits(preview.total)
+        heardRef.current = { digits, categoryId: onlyCategory.id, kind: 'photo' }
+        openCategory(onlyCategory, { digits, note: preview.merchant ?? '', date: preview.date })
         return
       }
-      if (!applyCurrency(r.currency)) return
-      setType(r.type)
-      heardRef.current = { digits, categoryId: category?.id ?? null, kind: 'photo' }
-      const prefill: Prefill = { digits, note: r.description ?? '', date: r.date }
-      if (category) openCategory(category, prefill)
-      else {
-        setPendingVoice(prefill)
-        setSheet({ mode: 'all' })
-      }
+      setReceipt({ preview, groups: preview.groups, images, readDate: preview.date, edited: false })
+      setReceiptPick(null)
+      setReceiptOpenItems(null)
     } catch (e) {
       const msg = getErrorMessage(e)
       recordError('photo', msg)
-      showToast({ kind: 'info', text: msg }, 5000)
+      showToast({ kind: 'info', text: msg }, 6000)
     } finally {
       setReading(false)
+    }
+  }
+
+  const receiptTotal = (groups: ReceiptGroup[]) => groups.reduce((s, g) => s + Number(g.amount), 0)
+
+  /** Cambia la categoría de un grupo; si ya existe un grupo con esa categoría, se funden. */
+  const setGroupCategory = (index: number, category: Category) => {
+    setReceipt((r) => {
+      if (!r) return r
+      const groups = r.groups.map((g) => ({ ...g }))
+      const target = groups.findIndex((g, i) => i !== index && g.categoryId === category.id)
+      const moved: ReceiptGroup = {
+        ...groups[index],
+        categoryId: category.id,
+        categoryName: category.name,
+        suggestedCategory: null,
+        items: groups[index].items.map((it) => ({ ...it, categoryId: category.id, suggestedCategory: null })),
+      }
+      if (target === -1) {
+        groups[index] = moved
+      } else {
+        groups[target] = {
+          ...groups[target],
+          amount: (Number(groups[target].amount) + Number(moved.amount)).toFixed(2),
+          items: [...groups[target].items, ...moved.items],
+        }
+        groups.splice(index, 1)
+      }
+      return { ...r, groups, edited: true }
+    })
+    setReceiptPick(null)
+  }
+
+  /** La boleta trae un rubro que no existe (p. ej. Mascotas): se crea ahí mismo. */
+  const createSuggestedCategory = async (index: number) => {
+    const g = receipt?.groups[index]
+    if (!g?.suggestedCategory) return
+    setCreatingCategory(true)
+    try {
+      const created = await categoriesApi.create({ name: g.suggestedCategory, type: 'EXPENSE' })
+      queryClient.invalidateQueries({ queryKey: queryKeys.categories.all })
+      setGroupCategory(index, created)
+    } catch (e) {
+      showToast({ kind: 'info', text: getErrorMessage(e) }, 4000)
+    } finally {
+      setCreatingCategory(false)
+    }
+  }
+
+  const saveReceipt = async () => {
+    if (!receipt || receiptSaving) return
+    if (!account) {
+      setPickAccount(true)
+      return
+    }
+    if (receipt.groups.some((g) => !g.categoryId)) {
+      showToast({ kind: 'info', text: 'Elige o crea la categoría de cada grupo.' }, 3000)
+      return
+    }
+    if (foreign && !(parseFloat(rate) > 0)) {
+      setRateOpen(true)
+      return
+    }
+    setReceiptSaving(true)
+    recordEntry(watch.elapsed(), receipt.edited ? 'photo-edited' : 'photo')
+    const date = receipt.preview.date ?? today
+    try {
+      const saved = await receiptsApi.create({
+        accountId: account.id,
+        merchant: receipt.preview.merchant ?? undefined,
+        date,
+        total: receiptTotal(receipt.groups).toFixed(2),
+        exchangeRate: foreign ? rate : undefined,
+        groups: receipt.groups.map((g) => ({
+          categoryId: g.categoryId!,
+          amount: Number(g.amount).toFixed(2),
+          items: g.items.map((it) => ({ description: it.description, amount: it.amount })),
+        })),
+      })
+      for (const g of receipt.groups) recordUse(g.categoryId!)
+      saveLastAccount(account.id)
+      setReceipt(null)
+      watch.reset('app')
+      invalidateAfterChange()
+      showToast({
+        kind: 'saved',
+        text: `${saved.merchant ?? 'Boleta'} · ${formatCurrency(saved.total, saved.currency)} · ${saved.transactions.length} movimientos`,
+        undo: async () => {
+          await receiptsApi.delete(saved.id)
+          invalidateAfterChange()
+        },
+      })
+    } catch (e) {
+      const msg = getErrorMessage(e)
+      recordError('save', msg)
+      showToast({ kind: 'error', text: msg, retry: () => void saveReceipt() }, 8000)
+    } finally {
+      setReceiptSaving(false)
     }
   }
 
@@ -422,10 +548,13 @@ export function QuickEntryPage() {
       invalidateAfterChange()
       showToast({
         kind: 'saved',
-        tx,
         text:
           `${formatCurrency(payload.amount, tx.currency)} · ${category.name}` +
           (newTotal !== null ? ` · Hoy llevas ${formatCurrency(newTotal, base)}` : ''),
+        undo: async () => {
+          await transactionsApi.delete(tx.id)
+          invalidateAfterChange()
+        },
       })
     },
     onError: (e, vars) => {
@@ -469,11 +598,10 @@ export function QuickEntryPage() {
     create.mutate({ payload, category })
   }
 
-  const undo = async (tx: Transaction) => {
+  const undo = async (run: () => Promise<void>) => {
     setToast(null)
     try {
-      await transactionsApi.delete(tx.id)
-      invalidateAfterChange()
+      await run()
       showToast({ kind: 'info', text: 'Registro deshecho' }, 2000)
     } catch (e) {
       showToast({ kind: 'info', text: getErrorMessage(e) }, 3000)
@@ -596,7 +724,7 @@ export function QuickEntryPage() {
         >
           <span className="flex-1">{toast.kind === 'saved' ? `✓ ${toast.text}` : toast.text}</span>
           {toast.kind === 'saved' && (
-            <button type="button" onClick={() => undo(toast.tx)} className="font-semibold underline underline-offset-2">
+            <button type="button" onClick={() => undo(toast.undo)} className="font-semibold underline underline-offset-2">
               Deshacer
             </button>
           )}
@@ -691,6 +819,196 @@ export function QuickEntryPage() {
           </form>
         </CenterCard>
       )}
+
+      {/* Boleta con varios productos: confirmar un movimiento por categoría */}
+      <BottomSheet
+        open={receipt !== null}
+        onClose={() => setReceipt(null)}
+        title={receipt ? `${receipt.preview.merchant ?? 'Boleta'} · ${formatCurrency(receiptTotal(receipt.groups), currency)}` : undefined}
+      >
+        {receipt && (
+          <>
+            <div className="flex flex-wrap gap-2">
+              {/* Fecha leída de la boleta; tocar alterna con Hoy (y vuelve a la leída) */}
+              <Chip
+                onClick={() =>
+                  setReceipt({
+                    ...receipt,
+                    preview: { ...receipt.preview, date: receipt.preview.date ? null : receipt.readDate },
+                  })
+                }
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                {receipt.preview.date && receipt.preview.date !== today ? shortDate(receipt.preview.date) : 'Hoy'}
+              </Chip>
+              {usableAccounts.length > 1 && (
+                <Chip onClick={() => setPickAccount((p) => !p)}>
+                  <CreditCard className="w-3.5 h-3.5" />
+                  <span className="truncate max-w-[9rem]">
+                    {account ? (foreign ? `${account.name} · ${account.currency}` : account.name) : 'Cuenta'}
+                  </span>
+                  {pickAccount ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </Chip>
+              )}
+              {foreign && (
+                <Chip onClick={() => setRateOpen((o) => !o)} warn={!(parseFloat(rate) > 0)}>
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  {parseFloat(rate) > 0 ? `1 ${currency} = ${formatCurrency(parseFloat(rate), base)}` : 'Tipo de cambio'}
+                </Chip>
+              )}
+            </div>
+
+            {pickAccount && (
+              <div className="mt-2">
+                <p className="text-sm text-gray-500 px-1 pb-1">¿Con qué pagaste?</p>
+                {usableAccounts.map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    className="sheet-row"
+                    onClick={() => {
+                      setAccountId(a.id)
+                      setPickAccount(false)
+                    }}
+                  >
+                    {a.currency !== base ? `${a.name} · ${a.currency}` : a.name}
+                    {a.id === accountId && <Check className="w-5 h-5 text-brand-500" />}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {rateOpen && foreign && (
+              <input
+                type="text"
+                inputMode="decimal"
+                className="input mt-3"
+                placeholder={`¿Cuánto vale 1 ${currency} en ${base}? Ej. 3.75`}
+                value={rate}
+                onChange={(e) => setRate(e.target.value.replace(',', '.').replace(/[^0-9.]/g, ''))}
+                autoFocus
+                enterKeyHint="done"
+                onKeyDown={(e) => e.key === 'Enter' && setRateOpen(false)}
+              />
+            )}
+
+            <p className="text-xs text-gray-500 mt-3 px-1">
+              Se guarda un movimiento por categoría. Toca una para cambiarla.
+            </p>
+
+            <div className="mt-1 divide-y divide-gray-100 max-h-[45dvh] overflow-y-auto">
+              {receipt.groups.map((g, i) => {
+                const cat = categories.find((c) => c.id === g.categoryId) ?? null
+                const tint = cat?.color ?? '#9CA3AF'
+                const Icon = categoryIcon(cat?.icon)
+                const picking = receiptPick === i
+                const itemsOpen = receiptOpenItems === i
+                return (
+                  <div key={`${g.categoryId ?? 's'}-${i}`} className="py-2">
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setReceiptPick(picking ? null : i)}
+                        className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                        aria-expanded={picking}
+                      >
+                        <span
+                          className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+                          style={{ backgroundColor: tint + '22', color: tint }}
+                        >
+                          <Icon className="w-4 h-4" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className={`block text-sm font-medium truncate ${cat ? '' : 'text-amber-700'}`}>
+                            {cat ? cat.name : `Sin categoría · ${g.suggestedCategory ?? 'Otros'}`}
+                          </span>
+                          <span className="block text-xs text-gray-500">
+                            {g.items.length} {g.items.length === 1 ? 'producto' : 'productos'}
+                          </span>
+                        </span>
+                      </button>
+                      <span className="text-sm font-semibold tabular-nums">{formatCurrency(g.amount, currency)}</span>
+                      <button
+                        type="button"
+                        onClick={() => setReceiptOpenItems(itemsOpen ? null : i)}
+                        className="p-1.5 text-gray-400"
+                        aria-label={itemsOpen ? 'Ocultar productos' : 'Ver productos'}
+                      >
+                        {itemsOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </button>
+                    </div>
+
+                    {itemsOpen && (
+                      <ul className="mt-1 ml-12 text-xs text-gray-600 space-y-0.5">
+                        {g.items.map((it, k) => (
+                          <li key={k} className="flex justify-between gap-2">
+                            <span className="truncate">{it.description}</span>
+                            <span className="tabular-nums shrink-0">{formatCurrency(it.amount, currency)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    {picking && (
+                      <div className="mt-2 ml-12">
+                        {!cat && g.suggestedCategory && (
+                          <button
+                            type="button"
+                            onClick={() => createSuggestedCategory(i)}
+                            disabled={creatingCategory}
+                            className="btn-primary w-full mb-2"
+                          >
+                            <Plus className="w-4 h-4 mr-1" />
+                            Crear «{g.suggestedCategory}»
+                          </button>
+                        )}
+                        <div className="flex flex-wrap gap-1.5">
+                          {categories
+                            .filter((c) => c.type === 'EXPENSE' && !c.archived)
+                            .map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onClick={() => setGroupCategory(i, c)}
+                                className={`rounded-full border px-2.5 py-1 text-xs ${
+                                  c.id === g.categoryId ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-700'
+                                }`}
+                              >
+                                {c.name}
+                              </button>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            {receipt.images.length < 2 && (
+              <button
+                type="button"
+                onClick={() => readPhoto('camera', receipt.images)}
+                className="mt-2 w-full inline-flex items-center justify-center gap-1.5 text-sm text-gray-600 py-2"
+              >
+                <Camera className="w-4 h-4" />
+                La boleta sigue: agregar otra foto
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={saveReceipt}
+              disabled={receiptSaving || receipt.groups.some((g) => !g.categoryId)}
+              className="btn-primary w-full mt-2 py-3 text-base rounded-xl disabled:opacity-40"
+            >
+              {receiptSaving
+                ? 'Guardando…'
+                : `Guardar ${receipt.groups.length} ${receipt.groups.length === 1 ? 'movimiento' : 'movimientos'}`}
+            </button>
+          </>
+        )}
+      </BottomSheet>
 
       {/* Hoja inferior: todas las categorías o el teclado */}
       <BottomSheet

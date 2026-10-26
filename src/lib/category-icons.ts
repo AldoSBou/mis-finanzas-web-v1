@@ -1,4 +1,5 @@
 import {
+  Bath,
   Book,
   Briefcase,
   Car,
@@ -8,11 +9,13 @@ import {
   Home,
   Laptop,
   MoreHorizontal,
+  PawPrint,
   Percent,
   PlusCircle,
   Repeat,
   Shirt,
   ShoppingCart,
+  Sparkles,
   Tag,
   Utensils,
   Zap,
@@ -37,6 +40,9 @@ const ICONS: Record<string, LucideIcon> = {
   laptop: Laptop,
   percent: Percent,
   'plus-circle': PlusCircle,
+  sparkles: Sparkles,
+  bath: Bath,
+  'paw-print': PawPrint,
 }
 
 export function categoryIcon(icon: string | null | undefined): LucideIcon {

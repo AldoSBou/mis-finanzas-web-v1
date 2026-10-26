@@ -208,6 +208,57 @@ export interface VoiceParseResponse {
   date: string | null
 }
 
+// ===== Boletas (foto con varios productos) =====
+export interface ReceiptItem {
+  description: string
+  amount: string
+  categoryId: number | null
+  /** Nombre propuesto cuando categoryId es null */
+  suggestedCategory: string | null
+}
+
+export interface ReceiptGroup {
+  categoryId: number | null
+  categoryName: string | null
+  suggestedCategory: string | null
+  amount: string
+  items: ReceiptItem[]
+}
+
+export interface ReceiptPreview {
+  merchant: string | null
+  date: string | null
+  total: string
+  currency: string
+  groups: ReceiptGroup[]
+}
+
+export interface ReceiptGroupRequest {
+  categoryId: number
+  amount: string
+  items?: Array<{ description: string; amount: string }>
+}
+
+export interface ReceiptCreateRequest {
+  accountId: number
+  merchant?: string
+  date: string
+  total: string
+  exchangeRate?: string
+  groups: ReceiptGroupRequest[]
+}
+
+export interface ReceiptResponse {
+  id: number
+  merchant: string | null
+  date: string
+  total: string
+  currency: string
+  accountId: number | null
+  items: ReceiptItem[]
+  transactions: Transaction[]
+}
+
 // ===== Métricas de uso =====
 export type ClientEventKind = 'ENTRY' | 'ERROR'
 
@@ -306,6 +357,8 @@ export interface Transaction {
   transactionDate: string
   description: string | null
   paymentMethod: string | null
+  /** Boleta leída de una foto (una boleta genera un movimiento por categoría) */
+  receiptId: number | null
   /** Recurrente que generó el movimiento */
   recurringId: number | null
   createdAt: string

@@ -12,6 +12,8 @@ export interface PickedPhoto {
 
 /** Lado mayor al que se reduce la imagen: suficiente para leer un voucher y pesa unos 200 KB. */
 const MAX_SIDE = 1280
+/** Las boletas de supermercado son largas y de letra chica: más resolución para no perder líneas. */
+export const RECEIPT_MAX_SIDE = 2000
 const QUALITY = 0.75
 
 /** Abre el selector del sistema. Resuelve null si la persona canceló. */
@@ -55,9 +57,9 @@ function loadImage(file: File): Promise<HTMLImageElement> {
 }
 
 /** Reduce la imagen a JPEG de hasta 1280 px por lado y la devuelve en base64 (sin el prefijo data:). */
-export async function shrinkToBase64(file: File): Promise<PickedPhoto> {
+export async function shrinkToBase64(file: File, maxSide = MAX_SIDE): Promise<PickedPhoto> {
   const img = await loadImage(file)
-  const scale = Math.min(1, MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight))
+  const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight))
   const canvas = document.createElement('canvas')
   canvas.width = Math.max(1, Math.round(img.naturalWidth * scale))
   canvas.height = Math.max(1, Math.round(img.naturalHeight * scale))
@@ -73,9 +75,9 @@ export async function shrinkToBase64(file: File): Promise<PickedPhoto> {
 }
 
 /** Foto o imagen de la galería, ya reducida y en base64; null si la persona canceló. */
-export async function pickPhoto(source: PhotoSource): Promise<PickedPhoto | null> {
+export async function pickPhoto(source: PhotoSource, maxSide = MAX_SIDE): Promise<PickedPhoto | null> {
   const file = await pickImageFile(source)
   if (!file) return null
   if (!file.type.startsWith('image/')) throw new Error('Elige una imagen (foto o captura de pantalla)')
-  return shrinkToBase64(file)
+  return shrinkToBase64(file, maxSide)
 }
