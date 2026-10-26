@@ -140,6 +140,8 @@ export function QuickEntryPage() {
   /** Índice del grupo cuya categoría se está cambiando */
   const [receiptPick, setReceiptPick] = useState<number | null>(null)
   const [receiptOpenItems, setReceiptOpenItems] = useState<number | null>(null)
+  /** Producto que se está moviendo a otra categoría (grupo e índice dentro del grupo) */
+  const [receiptMoveItem, setReceiptMoveItem] = useState<{ g: number; i: number } | null>(null)
   const [receiptSaving, setReceiptSaving] = useState(false)
   const [creatingCategory, setCreatingCategory] = useState(false)
 
@@ -416,8 +418,10 @@ export function QuickEntryPage() {
       const active = categories.filter((c) => !c.archived)
       const only = preview.groups.length === 1 ? preview.groups[0] : null
       const onlyCategory = only?.categoryId ? active.find((c) => c.id === only.categoryId) ?? null : null
-      if (only && onlyCategory && previous.length === 0) {
-        // Una sola categoría (voucher, Yape, boleta simple): flujo de siempre, con el teclado a mano
+      if (only && onlyCategory && only.items.length <= 1 && previous.length === 0) {
+        // Una sola línea (voucher, Yape): flujo de siempre, con el teclado a mano. Una boleta con
+        // varios productos siempre se confirma, aunque todo caiga en una categoría: así se ve
+        // qué leyó y se puede mover un producto a otra categoría.
         setType('EXPENSE')
         const digits = amountToDigits(preview.total)
         heardRef.current = { digits, categoryId: onlyCategory.id, kind: 'photo' }
@@ -426,7 +430,9 @@ export function QuickEntryPage() {
       }
       setReceipt({ preview, groups: preview.groups, images, readDate: preview.date, edited: false })
       setReceiptPick(null)
-      setReceiptOpenItems(null)
+      // Con un solo grupo, los productos se muestran de entrada para revisar qué leyó
+      setReceiptOpenItems(preview.groups.length === 1 ? 0 : null)
+      setReceiptMoveItem(null)
     } catch (e) {
       const msg = getErrorMessage(e)
       recordError('photo', msg)
@@ -464,6 +470,27 @@ export function QuickEntryPage() {
       return { ...r, groups, edited: true }
     })
     setReceiptPick(null)
+  }
+
+  /** Mueve un producto a otra categoría: sale de su grupo y entra al de destino (o crea uno). */
+  const moveItem = (groupIndex: number, itemIndex: number, category: Category) => {
+    setReceipt((r) => {
+      if (!r) return r
+      const groups = r.groups.map((g) => ({ ...g, items: [...g.items] }))
+      const [item] = groups[groupIndex].items.splice(itemIndex, 1)
+      if (!item) return r
+      const moved = { ...item, categoryId: category.id, suggestedCategory: null }
+      const sum = (items: typeof groups[number]['items']) => items.reduce((s, it) => s + Number(it.amount), 0).toFixed(2)
+      groups[groupIndex] = { ...groups[groupIndex], amount: sum(groups[groupIndex].items) }
+      const target = groups.findIndex((g) => g.categoryId === category.id)
+      if (target === -1) {
+        groups.push({ categoryId: category.id, categoryName: category.name, suggestedCategory: null, amount: moved.amount, items: [moved] })
+      } else {
+        groups[target] = { ...groups[target], items: [...groups[target].items, moved], amount: sum([...groups[target].items, moved]) }
+      }
+      return { ...r, groups: groups.filter((g) => g.items.length > 0), edited: true }
+    })
+    setReceiptMoveItem(null)
   }
 
   /** La boleta trae un rubro que no existe (p. ej. Mascotas): se crea ahí mismo. */
@@ -893,7 +920,7 @@ export function QuickEntryPage() {
             )}
 
             <p className="text-xs text-gray-500 mt-3 px-1">
-              Se guarda un movimiento por categoría. Toca una para cambiarla.
+              Se guarda un movimiento por categoría. Toca una categoría para cambiarla, o un producto para moverlo.
             </p>
 
             <div className="mt-1 divide-y divide-gray-100 max-h-[45dvh] overflow-y-auto">
@@ -940,12 +967,39 @@ export function QuickEntryPage() {
 
                     {itemsOpen && (
                       <ul className="mt-1 ml-12 text-xs text-gray-600 space-y-0.5">
-                        {g.items.map((it, k) => (
-                          <li key={k} className="flex justify-between gap-2">
-                            <span className="truncate">{it.description}</span>
-                            <span className="tabular-nums shrink-0">{formatCurrency(it.amount, currency)}</span>
-                          </li>
-                        ))}
+                        {g.items.map((it, k) => {
+                          const moving = receiptMoveItem?.g === i && receiptMoveItem?.i === k
+                          return (
+                            <li key={k}>
+                              {/* Tocar un producto permite mandarlo a otra categoría */}
+                              <button
+                                type="button"
+                                onClick={() => setReceiptMoveItem(moving ? null : { g: i, i: k })}
+                                className={`w-full flex justify-between gap-2 py-1 text-left rounded px-1 ${moving ? 'bg-brand-50 text-brand-700' : ''}`}
+                              >
+                                <span className="truncate">{it.description}</span>
+                                <span className="tabular-nums shrink-0">{formatCurrency(it.amount, currency)}</span>
+                              </button>
+                              {moving && (
+                                <div className="flex flex-wrap gap-1.5 py-1.5 px-1">
+                                  <span className="w-full text-[11px] text-gray-500">Mover a:</span>
+                                  {categories
+                                    .filter((c) => c.type === 'EXPENSE' && !c.archived && c.id !== g.categoryId)
+                                    .map((c) => (
+                                      <button
+                                        key={c.id}
+                                        type="button"
+                                        onClick={() => moveItem(i, k, c)}
+                                        className="rounded-full border border-gray-200 px-2.5 py-1 text-xs text-gray-700"
+                                      >
+                                        {c.name}
+                                      </button>
+                                    ))}
+                                </div>
+                              )}
+                            </li>
+                          )
+                        })}
                       </ul>
                     )}
 
