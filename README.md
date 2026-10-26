@@ -71,11 +71,16 @@ El build genera carpeta `dist/` con assets optimizados y el service worker de PW
 
 ## Características PWA
 
-- **Instalable** en Android/iOS/desktop (Chrome, Edge, Safari).
-- **Service worker** con `NetworkFirst` para `/api/*` (5s timeout, cache de 5 minutos).
-- **Manifest** con tema brand-500 (#0F6E56), iconos 192/512.
-- En Chrome desktop: ícono de instalación aparece en la barra de URL.
-- En móvil: "Agregar a pantalla de inicio".
+La PWA es la versión para iPhone (no hay app nativa iOS; la app Android vive en `mis-finanzas-mobile`).
+
+- **Instalable** en Android/iOS/desktop. En iPhone: Safari → Compartir → "Agregar a pantalla de inicio" (la app lo explica con `InstallHint` hasta que corre instalada).
+- **Manifest** con `start_url: /registrar`: la app instalada abre directo en el registro rápido. Iconos 192/512 más `apple-touch-icon.png` (180, sin transparencia) y metas `apple-mobile-web-app-*` en `index.html`.
+- **Service worker** (Workbox) que precachea solo la app. Las respuestas de `/api` no se guardan: con el backend dormido, datos viejos confundirían más que esperar.
+- **Sesión persistente**: login y registro piden `rememberDevice`, y `api-client.ts` renueva el JWT (8 h) con el refresh token ante un 401. La app instalada no vuelve a pedir contraseña.
+- **Registro rápido** (`/registrar`, `QuickEntryPage`): la misma pantalla que la app Android. Categorías ordenadas por uso y hora (`lib/usage.ts`), teclado desde los centavos, chips de cuenta/fecha/nota/tipo de cambio, "Hoy llevas" y "Te quedan", deshacer, y métricas de velocidad (`lib/metrics.ts`, cola en localStorage → `POST /api/metrics/events` con `platform: web`).
+  - **Voz**: Web Speech API (`lib/speech.ts`, `es-PE`) cuando el navegador la tiene; siempre hay un campo de texto, así que en iOS también sirve el dictado del teclado. La frase se interpreta primero en local (`lib/voice-parse.ts`, con tests) y, si no se reconoce la categoría, con `POST /api/voice/parse`.
+  - **Foto**: `<input type="file" capture>` → canvas a 1280 px JPEG → `POST /api/voice/parse-image`. Voz y foto necesitan `ANTHROPIC_API_KEY` en el backend; sin ella, la app pide la categoría a mano.
+- En Chrome desktop: ícono de instalación en la barra de URL.
 
 ## Cómo cambiar la URL del backend
 

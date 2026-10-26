@@ -36,4 +36,8 @@
   .card {
     @apply bg-white rounded-lg border border-gray-200 p-4;
   }
+  /* Fila de una hoja inferior (registro rápido): texto a la izquierda, icono a la derecha */
+  .sheet-row {
+    @apply w-full flex items-center justify-between gap-3 px-1 py-3 text-base text-left border-b border-gray-100 last:border-b-0 active:bg-gray-50;
+  }
 }

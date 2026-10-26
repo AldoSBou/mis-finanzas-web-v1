@@ -4,6 +4,7 @@ import { authApi } from '@/api/auth'
 import { useAuth } from '@/features/auth/AuthProvider'
 import { getErrorMessage } from '@/lib/api-client'
 import { ErrorState } from '@/components/ui/States'
+import { homePath } from '@/lib/pwa'
 
 export function RegisterPage() {
   const navigate = useNavigate()
@@ -20,8 +21,8 @@ export function RegisterPage() {
     setSubmitting(true)
     try {
       const resp = await authApi.register(email, password, displayName || undefined)
-      login(resp.token, resp.user)
-      navigate('/', { replace: true })
+      login(resp.token, resp.user, resp.refreshToken)
+      navigate(homePath(), { replace: true })
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {

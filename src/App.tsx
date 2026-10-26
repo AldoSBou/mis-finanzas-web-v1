@@ -7,6 +7,7 @@ import { AppLayout } from '@/components/AppLayout'
 import { LoginPage } from '@/pages/LoginPage'
 import { RegisterPage } from '@/pages/RegisterPage'
 import { DashboardPage } from '@/pages/DashboardPage'
+import { QuickEntryPage } from '@/pages/QuickEntryPage'
 import { TransactionsPage } from '@/pages/TransactionsPage'
 import { AccountsPage } from '@/pages/AccountsPage'
 import { RecurringPage } from '@/pages/RecurringPage'
@@ -50,6 +51,7 @@ export function App() {
               }
             >
               <Route index element={<DashboardPage />} />
+              <Route path="registrar" element={<QuickEntryPage />} />
               <Route path="movimientos" element={<TransactionsPage />} />
               <Route path="cuentas" element={<AccountsPage />} />
               <Route path="tarjetas" element={<CardsPage />} />

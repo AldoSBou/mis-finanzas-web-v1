@@ -4,6 +4,8 @@ import { authApi } from '@/api/auth'
 import { useAuth } from '@/features/auth/AuthProvider'
 import { getErrorMessage } from '@/lib/api-client'
 import { ErrorState } from '@/components/ui/States'
+import { InstallHint } from '@/components/InstallHint'
+import { homePath } from '@/lib/pwa'
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -19,8 +21,8 @@ export function LoginPage() {
     setSubmitting(true)
     try {
       const resp = await authApi.login(email, password)
-      login(resp.token, resp.user)
-      navigate('/', { replace: true })
+      login(resp.token, resp.user, resp.refreshToken)
+      navigate(homePath(), { replace: true })
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
@@ -73,6 +75,7 @@ export function LoginPage() {
             </Link>
           </p>
         </form>
+        <InstallHint className="mt-4" />
       </div>
     </div>
   )

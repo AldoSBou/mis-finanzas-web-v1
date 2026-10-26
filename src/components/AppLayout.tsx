@@ -16,6 +16,7 @@ import {
   Upload,
   Wallet,
   X,
+  Zap,
 } from 'lucide-react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '@/features/auth/AuthProvider'
@@ -24,6 +25,7 @@ import { TransactionFormModal } from '@/features/transactions/TransactionFormMod
 
 const navItems = [
   { to: '/', label: 'Panel', icon: LayoutDashboard, end: true },
+  { to: '/registrar', label: 'Registrar', icon: Zap },
   { to: '/movimientos', label: 'Movimientos', icon: ListOrdered },
   { to: '/flujo', label: 'Flujo de caja', icon: Table2 },
   { to: '/reportes', label: 'Reportes', icon: BarChart3 },
@@ -38,8 +40,8 @@ const navItems = [
   { to: '/categorias', label: 'Categorías', icon: Tag },
 ]
 
-/** Móvil: las que van en la barra inferior; el resto queda en "Más". */
-const TAB_PATHS = ['/', '/movimientos', '/cuentas']
+/** Móvil: las que van en la barra inferior (el "+" lleva a Registrar); el resto queda en "Más". */
+const TAB_PATHS = ['/', '/registrar', '/movimientos', '/cuentas']
 const moreItems = navItems.filter((i) => !TAB_PATHS.includes(i.to))
 
 export function AppLayout() {
@@ -112,11 +114,15 @@ export function AppLayout() {
         <TabBarItem to="/movimientos" icon={ListOrdered} label="Movimientos" />
 
         <div className="flex justify-center">
+          {/* En el teléfono, el "+" abre el registro rápido (teclado, voz y foto) */}
           <button
             type="button"
-            onClick={() => setNewTxOpen(true)}
-            className="bg-brand-500 text-white w-14 h-14 rounded-full flex items-center justify-center shadow-md -mt-7"
-            aria-label="Nuevo movimiento"
+            onClick={() => navigate('/registrar')}
+            className={`text-white w-14 h-14 rounded-full flex items-center justify-center shadow-md -mt-7 ${
+              pathname === '/registrar' ? 'bg-brand-700' : 'bg-brand-500'
+            }`}
+            aria-label="Registrar"
+            aria-current={pathname === '/registrar' ? 'page' : undefined}
           >
             <Plus className="w-6 h-6" />
           </button>

@@ -15,6 +15,9 @@ import type {
   LiquidityResponse,
   CategoryBudgetSummary,
   CategoryRequest,
+  ClientEventRequest,
+  MetricsSummary,
+  VoiceParseResponse,
   Commitment,
   CommitmentRequest,
   CommitmentStatus,
@@ -231,6 +234,24 @@ export const cashflowApi = {
 export const liquidityApi = {
   get: (daily?: string) =>
     api.get<LiquidityResponse>('/liquidity', { params: daily ? { daily } : {} }).then((r) => r.data),
+}
+
+/** Intérprete de frases y fotos (Claude en el backend). Sin ANTHROPIC_API_KEY responde 503 VOICE_UNAVAILABLE. */
+export const voiceApi = {
+  status: () => api.get<{ available: boolean }>('/voice').then((r) => r.data),
+  parse: (text: string) => api.post<VoiceParseResponse>('/voice/parse', { text }).then((r) => r.data),
+  parseImage: (imageBase64: string, mediaType: string) =>
+    api
+      .post<VoiceParseResponse>('/voice/parse-image', { imageBase64, mediaType }, { timeout: 60000 })
+      .then((r) => r.data),
+}
+
+/** Métricas de uso (velocidad de registro y errores), las mismas que manda la app móvil. */
+export const metricsApi = {
+  record: (events: ClientEventRequest[]) =>
+    api.post<{ accepted: number }>('/metrics/events', events).then((r) => r.data),
+  summary: (days = 30) =>
+    api.get<MetricsSummary>('/metrics/summary', { params: { days } }).then((r) => r.data),
 }
 
 export const overviewApi = {

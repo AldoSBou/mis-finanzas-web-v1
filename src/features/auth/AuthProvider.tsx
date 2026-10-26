@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { authApi } from '@/api/auth'
-import { ApiClientError, tokenStorage } from '@/lib/api-client'
+import { ApiClientError, setSessionExpiredHandler, tokenStorage } from '@/lib/api-client'
 import type { User } from '@/types/api'
 
 interface AuthContextValue {
@@ -11,7 +11,7 @@ interface AuthContextValue {
   /** Hay sesión guardada pero el backend no respondió (p. ej. sigue despertando) */
   connectionError: boolean
   retry: () => void
-  login: (token: string, user: User) => void
+  login: (token: string, user: User, refreshToken?: string | null) => void
   logout: () => Promise<void>
 }
 
@@ -33,10 +33,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     staleTime: 5 * 60 * 1000,
   })
 
-  const login = (token: string, _user: User) => {
+  const login = (token: string, _user: User, refreshToken?: string | null) => {
     tokenStorage.set(token)
+    tokenStorage.setRefresh(refreshToken ?? null)
     setHasToken(true)
   }
+
+  // Si el refresh token también venció, se vuelve a la pantalla de ingreso
+  useEffect(() => {
+    setSessionExpiredHandler(() => setHasToken(false))
+    return () => setSessionExpiredHandler(null)
+  }, [])
 
   /**
    * Logout completo: 1) revoca server-side, 2) limpia localmente, 3) redirige.
@@ -61,9 +68,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider
       value={{
-        user: user ?? null,
+        // Sin token no hay sesión aunque la consulta conserve datos en caché
+        user: hasToken ? (user ?? null) : null,
         isLoading: hasToken && isLoading,
-        isAuthenticated: !!user,
+        isAuthenticated: hasToken && !!user,
         connectionError: hasToken && !user && !!error && !isSessionInvalid(error),
         retry: () => void refetch(),
         login,

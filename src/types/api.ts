@@ -191,6 +191,47 @@ export interface TokenResponse {
   token: string
   expiresInSeconds: number
   user: User
+  /** Solo si se pidió rememberDevice */
+  refreshToken: string | null
+}
+
+// ===== Intérprete (voz y foto) =====
+export interface VoiceParseResponse {
+  amount: string | number | null
+  /** Moneda del comprobante; la base del usuario si no se distingue */
+  currency: string | null
+  type: TransactionType
+  categoryId: number | null
+  categoryName: string | null
+  description: string | null
+  /** Fecha del comprobante (fotos); null si no se ve o es hoy */
+  date: string | null
+}
+
+// ===== Métricas de uso =====
+export type ClientEventKind = 'ENTRY' | 'ERROR'
+
+export interface ClientEventRequest {
+  kind: ClientEventKind
+  durationMs?: number
+  source?: string
+  message?: string
+  platform?: string
+  appVersion?: string
+  occurredAt: string
+}
+
+export interface MetricsSummary {
+  days: number
+  entries: number
+  medianMs: number | null
+  under10Pct: number | null
+  fromNotification: number
+  voice: number
+  voiceFirstTry: number
+  photo: number
+  photoFirstTry: number
+  errors: number
 }
 
 // ===== Categories =====

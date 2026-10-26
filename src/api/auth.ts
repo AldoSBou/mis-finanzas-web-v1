@@ -1,13 +1,16 @@
-import { api } from '@/lib/api-client'
+import { api, tokenStorage } from '@/lib/api-client'
 import type { ProfileRequest, TokenResponse, User } from '@/types/api'
 
 export const authApi = {
+  /** rememberDevice: pide un refresh token para que la sesión dure más que las 8 h del JWT. */
   login: (email: string, password: string) =>
-    api.post<TokenResponse>('/auth/login', { email, password }).then((r) => r.data),
+    api
+      .post<TokenResponse>('/auth/login', { email, password, rememberDevice: true })
+      .then((r) => r.data),
 
   register: (email: string, password: string, displayName?: string) =>
     api
-      .post<TokenResponse>('/auth/register', { email, password, displayName })
+      .post<TokenResponse>('/auth/register', { email, password, displayName, rememberDevice: true })
       .then((r) => r.data),
 
   me: () => api.get<User>('/auth/me').then((r) => r.data),
@@ -23,7 +26,9 @@ export const authApi = {
    */
   logout: async (): Promise<void> => {
     try {
-      await api.post('/auth/logout')
+      // Con el refresh token el backend también lo revoca
+      const refreshToken = tokenStorage.getRefresh()
+      await api.post('/auth/logout', refreshToken ? { refreshToken } : undefined)
     } catch (err) {
       // Ignoramos errores: lo importante es que localmente quedamos sin sesión.
       // El servidor podría no tener el token (ya expirado, ya revocado, etc.)

@@ -12,6 +12,7 @@ import type { ApiResponse, ApiError } from '@/types/envelope'
 const API_BASE = import.meta.env.VITE_API_URL ?? '/api'
 
 const TOKEN_KEY = 'mis-finanzas:token'
+const REFRESH_KEY = 'mis-finanzas:refresh'
 
 /**
  * Reintentos mientras el backend despierta: hasta 3 más, con esperas de 2, 4 y 8 s.
@@ -26,11 +27,75 @@ const CIRCUIT_OPEN_MS = 20_000
 let consecutiveFailures = 0
 let circuitOpenUntil = 0
 
+/**
+ * Sesión en localStorage. El token de acceso dura 8 horas; el refresh token (si se pidió
+ * "recordar este dispositivo") permite renovarlo sin volver a pedir la contraseña, que es
+ * lo que hace falta para que la app instalada en el teléfono abra lista para registrar.
+ */
 export const tokenStorage = {
   get: () => localStorage.getItem(TOKEN_KEY),
   set: (token: string) => localStorage.setItem(TOKEN_KEY, token),
-  clear: () => localStorage.removeItem(TOKEN_KEY),
+  getRefresh: () => localStorage.getItem(REFRESH_KEY),
+  setRefresh: (token: string | null) =>
+    token ? localStorage.setItem(REFRESH_KEY, token) : localStorage.removeItem(REFRESH_KEY),
+  clear: () => {
+    localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem(REFRESH_KEY)
+  },
 }
+
+/** Se llama cuando la sesión venció y no se pudo renovar. */
+let onSessionExpired: (() => void) | null = null
+export const setSessionExpiredHandler = (fn: (() => void) | null) => {
+  onSessionExpired = fn
+}
+
+interface RefreshedSession {
+  token: string
+  refreshToken: string | null
+}
+
+/** 'ok' = sesión renovada; 'invalid' = el refresh token ya no sirve; 'unreachable' = el servidor no respondió. */
+type RefreshOutcome = 'ok' | 'invalid' | 'unreachable'
+
+// Si varias peticiones reciben 401 a la vez, se renueva una sola vez
+let refreshing: Promise<RefreshOutcome> | null = null
+
+async function refreshSession(): Promise<RefreshOutcome> {
+  const refresh = tokenStorage.getRefresh()
+  if (!refresh) return 'invalid'
+  refreshing ??= (async () => {
+    try {
+      for (let attempt = 0; attempt <= WAKE_DELAYS_MS.length; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, WAKE_DELAYS_MS[attempt - 1]))
+        try {
+          // axios "crudo": sin interceptores, para no entrar en bucle
+          const res = await axios.post<ApiResponse<RefreshedSession>>(
+            `${API_BASE}/auth/refresh`,
+            { refreshToken: refresh },
+            { timeout: 20000 },
+          )
+          const data = res.data?.success ? res.data.data : null
+          if (!data?.token) return 'invalid'
+          tokenStorage.set(data.token)
+          tokenStorage.setRefresh(data.refreshToken ?? null)
+          return 'ok'
+        } catch (e) {
+          const status = (e as AxiosError).response?.status
+          // Sin respuesta o 502/503/504: el backend está despertando, se vuelve a intentar
+          if (status && status !== 502 && status !== 503 && status !== 504) return 'invalid'
+        }
+      }
+      return 'unreachable'
+    } finally {
+      refreshing = null
+    }
+  })()
+  return refreshing
+}
+
+/** Rutas donde un 401 es la respuesta real (contraseña incorrecta, token de refresco vencido). */
+const NO_REFRESH_PATHS = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/logout']
 
 export const api = axios.create({
   baseURL: API_BASE,
@@ -109,8 +174,28 @@ api.interceptors.response.use(
     // El backend en Railway se duerme sin uso: la primera petición puede fallar
     // (502/503/504, o sin respuesta porque el proxy no manda CORS) mientras arranca.
     // Reintentamos solo lecturas (GET), que son seguras de repetir.
-    const config = error.config as (typeof error.config & { _retries?: number }) | undefined
+    const config = error.config as
+      | (typeof error.config & { _retries?: number; _refreshed?: boolean })
+      | undefined
     const status = error.response?.status
+
+    // Token de acceso vencido: se renueva con el refresh token y se repite la petición
+    if (
+      status === 401 &&
+      config &&
+      !config._refreshed &&
+      !NO_REFRESH_PATHS.some((p) => (config.url ?? '').includes(p)) &&
+      tokenStorage.getRefresh()
+    ) {
+      config._refreshed = true
+      const outcome = await refreshSession()
+      if (outcome === 'ok') return api(config)
+      if (outcome === 'invalid') {
+        tokenStorage.clear()
+        onSessionExpired?.()
+      }
+      // 'unreachable': se deja pasar el 401 original sin borrar la sesión
+    }
     const errorCode = (error.response?.data as ApiResponse<unknown> | undefined)?.error?.code
     // Un 503 con código propio (p. ej. VOICE_UNAVAILABLE) es definitivo; sin código o
     // DATABASE_UNAVAILABLE es el servidor despertando.
