@@ -6,6 +6,7 @@ import {
   Camera,
   Check,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   CreditCard,
   Delete,
@@ -139,7 +140,8 @@ export function QuickEntryPage() {
   const [receipt, setReceipt] = useState<ReceiptDraft | null>(null)
   /** Índice del grupo cuya categoría se está cambiando */
   const [receiptPick, setReceiptPick] = useState<number | null>(null)
-  const [receiptOpenItems, setReceiptOpenItems] = useState<number | null>(null)
+  /** Grupos cuyos productos la persona plegó (por defecto todos se ven, para revisar qué leyó) */
+  const [receiptClosed, setReceiptClosed] = useState<number[]>([])
   /** Producto que se está moviendo a otra categoría (grupo e índice dentro del grupo) */
   const [receiptMoveItem, setReceiptMoveItem] = useState<{ g: number; i: number } | null>(null)
   const [receiptSaving, setReceiptSaving] = useState(false)
@@ -430,8 +432,7 @@ export function QuickEntryPage() {
       }
       setReceipt({ preview, groups: preview.groups, images, readDate: preview.date, edited: false })
       setReceiptPick(null)
-      // Con un solo grupo, los productos se muestran de entrada para revisar qué leyó
-      setReceiptOpenItems(preview.groups.length === 1 ? 0 : null)
+      setReceiptClosed([])
       setReceiptMoveItem(null)
     } catch (e) {
       const msg = getErrorMessage(e)
@@ -929,7 +930,7 @@ export function QuickEntryPage() {
                 const tint = cat?.color ?? '#9CA3AF'
                 const Icon = categoryIcon(cat?.icon)
                 const picking = receiptPick === i
-                const itemsOpen = receiptOpenItems === i
+                const itemsOpen = !receiptClosed.includes(i)
                 return (
                   <div key={`${g.categoryId ?? 's'}-${i}`} className="py-2">
                     <div className="flex items-center gap-3">
@@ -957,7 +958,7 @@ export function QuickEntryPage() {
                       <span className="text-sm font-semibold tabular-nums">{formatCurrency(g.amount, currency)}</span>
                       <button
                         type="button"
-                        onClick={() => setReceiptOpenItems(itemsOpen ? null : i)}
+                        onClick={() => setReceiptClosed((c) => (itemsOpen ? [...c, i] : c.filter((x) => x !== i)))}
                         className="p-1.5 text-gray-400"
                         aria-label={itemsOpen ? 'Ocultar productos' : 'Ver productos'}
                       >
@@ -975,10 +976,12 @@ export function QuickEntryPage() {
                               <button
                                 type="button"
                                 onClick={() => setReceiptMoveItem(moving ? null : { g: i, i: k })}
-                                className={`w-full flex justify-between gap-2 py-1 text-left rounded px-1 ${moving ? 'bg-brand-50 text-brand-700' : ''}`}
+                                className={`w-full flex items-center gap-2 py-1 text-left rounded px-1 ${moving ? 'bg-brand-50 text-brand-700' : ''}`}
+                                aria-label={`Mover ${it.description} a otra categoría`}
                               >
-                                <span className="truncate">{it.description}</span>
+                                <span className="truncate flex-1">{it.description}</span>
                                 <span className="tabular-nums shrink-0">{formatCurrency(it.amount, currency)}</span>
+                                <ChevronRight className="w-3.5 h-3.5 shrink-0 text-gray-400" aria-hidden />
                               </button>
                               {moving && (
                                 <div className="flex flex-wrap gap-1.5 py-1.5 px-1">
